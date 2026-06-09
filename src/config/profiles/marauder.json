@@ -1,0 +1,19 @@
+{
+  "name": "ESP32 Marauder",
+  "version": "latest",
+  "backend": "esptool",
+  "protocol": "marauder",
+  "description": "WiFi/BLE offensive security firmware for ESP32",
+  "download_url": "https://github.com/justcallmekoko/ESP32Marauder/releases/latest",
+  "board_variants": [
+    "esp32_marauder_v6_flipper",
+    "esp32_marauder_v6_lddb",
+    "esp32_marauder_v6_dev_board_pro",
+    "esp32_marauder_v6_esp32s3_lddb"
+  ],
+  "flash_args": {
+    "baud": 921600,
+    "flash_mode": "dio",
+    "flash_size": "detect"
+  }
+}
