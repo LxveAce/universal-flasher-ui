@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 
 
 class FirmwareProfile:
@@ -19,11 +20,22 @@ class FirmwareProfile:
         return f"<FirmwareProfile {self.name} v{self.version} [{self.backend}]>"
 
 
+def _get_default_profile_dir():
+    """Resolve the profiles directory, handling both dev and PyInstaller paths."""
+    # PyInstaller bundles data into _MEIPASS
+    if getattr(sys, "frozen", False):
+        base = sys._MEIPASS
+    else:
+        # Development: resolve relative to the project root
+        base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(base, "src", "config", "profiles")
+
+
 class ProfileLoader:
     """Loads firmware profiles from JSON files in a directory."""
 
-    def __init__(self, profile_dir="src/config/profiles"):
-        self.profile_dir = profile_dir
+    def __init__(self, profile_dir=None):
+        self.profile_dir = profile_dir or _get_default_profile_dir()
         self.profiles: dict[str, FirmwareProfile] = {}
 
     def load_all(self):

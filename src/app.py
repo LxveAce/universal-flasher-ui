@@ -5,11 +5,12 @@ from src.ui.flash_tab import FlashTab
 from src.ui.device_tab import DeviceTab
 from src.ui.cross_comm_tab import CrossCommTab
 from src.ui.settings_tab import SettingsTab
+from src.ui.main_window import MainWindowMixin
 from src.core.device_manager import DeviceManager
 from src.core.cross_comm import CrossCommBroker
 
 
-class UniversalFlasherUI(QMainWindow):
+class UniversalFlasherUI(MainWindowMixin, QMainWindow):
 
     def __init__(self):
         super().__init__()
@@ -21,6 +22,7 @@ class UniversalFlasherUI(QMainWindow):
 
         self._build_ui()
         self._connect_signals()
+        self.build_menu_bar()
 
     def _build_ui(self):
         self.tabs = QTabWidget()
@@ -56,5 +58,7 @@ class UniversalFlasherUI(QMainWindow):
         self.status_bar.showMessage(msg)
 
     def closeEvent(self, event):
+        """Clean up serial readers and connections on close."""
+        self.device_tab.cleanup()
         self.device_manager.disconnect_all()
         super().closeEvent(event)

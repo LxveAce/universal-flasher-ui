@@ -1,0 +1,12 @@
+{
+  "name": "Flipper Momentum",
+  "version": "latest",
+  "backend": "qflipper",
+  "protocol": "flipper",
+  "description": "Momentum firmware for Flipper Zero — feature-rich custom firmware",
+  "download_url": "https://github.com/Next-Flip/Momentum-Firmware/releases/latest",
+  "board_variants": [
+    "flipper_zero"
+  ],
+  "flash_args": {}
+}

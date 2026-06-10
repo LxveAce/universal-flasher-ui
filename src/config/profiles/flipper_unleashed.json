@@ -1,0 +1,12 @@
+{
+  "name": "Flipper Unleashed",
+  "version": "latest",
+  "backend": "qflipper",
+  "protocol": "flipper",
+  "description": "Unleashed firmware for Flipper Zero — unlocked frequencies and features",
+  "download_url": "https://github.com/DarkFlippers/unleashed-firmware/releases/latest",
+  "board_variants": [
+    "flipper_zero"
+  ],
+  "flash_args": {}
+}

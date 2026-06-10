@@ -1,14 +1,20 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QGroupBox, QFormLayout, QComboBox,
     QSpinBox, QCheckBox, QLineEdit, QPushButton, QLabel,
+    QMessageBox, QHBoxLayout,
 )
+
+from src.config.settings import load_settings, save_settings
 
 
 class SettingsTab(QWidget):
 
     def __init__(self):
         super().__init__()
+        self._settings = load_settings()
         self._build_ui()
+        self._connect_signals()
+        self._load_current()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -61,4 +67,83 @@ class SettingsTab(QWidget):
         profile_form.addRow(self.reload_btn)
         layout.addWidget(profile_group)
 
+        # Save / Reset buttons
+        btn_row = QHBoxLayout()
+        self.save_btn = QPushButton("Save Settings")
+        self.reset_btn = QPushButton("Reset to Defaults")
+        btn_row.addStretch()
+        btn_row.addWidget(self.reset_btn)
+        btn_row.addWidget(self.save_btn)
+        layout.addLayout(btn_row)
+
         layout.addStretch()
+
+    def _connect_signals(self):
+        self.save_btn.clicked.connect(self._save)
+        self.reset_btn.clicked.connect(self._reset)
+
+    def _load_current(self):
+        """Load current settings into the UI widgets."""
+        s = self._settings
+
+        # Serial
+        baud = str(s.get("serial", {}).get("default_baud", 115200))
+        idx = self.baud_combo.findText(baud)
+        if idx >= 0:
+            self.baud_combo.setCurrentIndex(idx)
+        self.timeout_spin.setValue(s.get("serial", {}).get("timeout", 5))
+
+        # Flash
+        self.verify_check.setChecked(s.get("flash", {}).get("verify", True))
+        self.backup_check.setChecked(s.get("flash", {}).get("auto_backup", True))
+        flash_baud = str(s.get("flash", {}).get("baud", 921600))
+        idx = self.flash_baud.findText(flash_baud)
+        if idx >= 0:
+            self.flash_baud.setCurrentIndex(idx)
+
+        # Cross-comm
+        self.auto_discover.setChecked(s.get("cross_comm", {}).get("auto_share", True))
+        self.dedup_check.setChecked(s.get("cross_comm", {}).get("dedup_by_mac", True))
+
+    def _gather(self) -> dict:
+        """Gather current UI state into a settings dict."""
+        return {
+            "serial": {
+                "default_baud": int(self.baud_combo.currentText()),
+                "timeout": self.timeout_spin.value(),
+            },
+            "flash": {
+                "baud": int(self.flash_baud.currentText()),
+                "verify": self.verify_check.isChecked(),
+                "auto_backup": self.backup_check.isChecked(),
+            },
+            "cross_comm": {
+                "auto_share": self.auto_discover.isChecked(),
+                "dedup_by_mac": self.dedup_check.isChecked(),
+            },
+        }
+
+    def _save(self):
+        """Save settings to disk."""
+        self._settings = self._gather()
+        try:
+            save_settings(self._settings)
+            QMessageBox.information(self, "Settings", "Settings saved successfully.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save settings: {e}")
+
+    def _reset(self):
+        """Reset all settings to defaults."""
+        from src.config.settings import DEFAULTS
+        self._settings = dict(DEFAULTS)
+        self._load_current()
+
+    def showEvent(self, event):
+        """Reload settings from disk when tab is shown."""
+        super().showEvent(event)
+        self._settings = load_settings()
+        self._load_current()
+
+    def get_settings(self) -> dict:
+        """Get current settings (for use by other components)."""
+        return self._settings

@@ -1,0 +1,21 @@
+{
+  "name": "Bruce",
+  "version": "latest",
+  "backend": "esptool",
+  "protocol": "bruce",
+  "description": "Multi-tool firmware for ESP32 CYD and similar boards (WiFi, BLE, IR, SubGHz, NFC)",
+  "download_url": "https://github.com/pr3y/Bruce/releases/latest",
+  "board_variants": [
+    "bruce_cyd_2usb",
+    "bruce_cyd_micro",
+    "bruce_esp32s3",
+    "bruce_cardputer",
+    "bruce_stickc_plus",
+    "bruce_stickc_plus2"
+  ],
+  "flash_args": {
+    "baud": 921600,
+    "flash_mode": "dio",
+    "flash_size": "detect"
+  }
+}
