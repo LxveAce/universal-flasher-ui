@@ -1,0 +1,19 @@
+{
+  "name": "HaleHound",
+  "version": "latest",
+  "backend": "esptool",
+  "protocol": "halehound",
+  "description": "Multi-protocol offensive security firmware (WiFi, BLE, SubGHz via CC1101, NFC via PN532, NRF24)",
+  "download_url": "",
+  "board_variants": [
+    "halehound_esp32_full",
+    "halehound_esp32s3_full",
+    "halehound_esp32_wifi_only",
+    "halehound_esp32_ble_only"
+  ],
+  "flash_args": {
+    "baud": 921600,
+    "flash_mode": "dio",
+    "flash_size": "detect"
+  }
+}

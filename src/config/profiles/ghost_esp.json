@@ -1,0 +1,20 @@
+{
+  "name": "GhostESP",
+  "version": "latest",
+  "backend": "esptool",
+  "protocol": "ghost_esp",
+  "description": "WiFi/BLE offensive firmware for ESP32 with wardriving support",
+  "download_url": "https://github.com/Spooks4576/Ghost_ESP/releases/latest",
+  "board_variants": [
+    "ghost_esp_esp32",
+    "ghost_esp_esp32s2",
+    "ghost_esp_esp32s3",
+    "ghost_esp_esp32_marauder_board",
+    "ghost_esp_esp32_flipper_devboard"
+  ],
+  "flash_args": {
+    "baud": 921600,
+    "flash_mode": "dio",
+    "flash_size": "detect"
+  }
+}
