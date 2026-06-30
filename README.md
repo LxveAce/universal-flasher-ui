@@ -5,6 +5,8 @@
 [![UI: PyQt5](https://img.shields.io/badge/ui-PyQt5-green)](https://pypi.org/project/PyQt5/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)](#license)
 
+> ⚠️ **Authorized, lawful use only.** A security-research tool — use it only on systems you own or have explicit permission to test. Provided as-is, no warranty; you assume all risk. See [DISCLAIMER.md](DISCLAIMER.md).
+
 A single desktop app that **flashes firmware**, **talks to headless devices over serial**, and **coordinates discoveries between devices** — for ESP32, Raspberry Pi, Flipper Zero, and ADB-based hardware.
 
 This is the unified successor to two earlier tools by the same author:
