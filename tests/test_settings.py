@@ -43,6 +43,35 @@ def test_unknown_top_level_key_passes_through(tmp_path, monkeypatch):
     assert loaded["ui"] == DEFAULTS["ui"]
 
 
+def test_corrupt_file_returns_defaults(tmp_path, monkeypatch):
+    # A truncated/hand-edited settings.json must not crash the app on startup.
+    path = tmp_path / "settings.json"
+    path.write_text("{ this is not valid json ")
+    monkeypatch.setattr(settings_mod, "SETTINGS_PATH", str(path))
+    loaded = settings_mod.load_settings()
+    assert loaded == DEFAULTS
+    assert loaded is not DEFAULTS
+
+
+def test_non_dict_json_returns_defaults(tmp_path, monkeypatch):
+    # Valid JSON that is not an object (a list/scalar) is ignored, not crashed on.
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps([1, 2, 3]))
+    monkeypatch.setattr(settings_mod, "SETTINGS_PATH", str(path))
+    loaded = settings_mod.load_settings()
+    assert loaded == DEFAULTS
+
+
+def test_loaded_sections_are_independent_copies(tmp_path, monkeypatch):
+    # Mutating the returned dict must never leak back into the module DEFAULTS.
+    monkeypatch.setattr(settings_mod, "SETTINGS_PATH", str(tmp_path / "none.json"))
+    loaded = settings_mod.load_settings()
+    loaded["ui"]["theme"] = "light"
+    loaded["cross_comm"]["dedup_by_mac"] = False
+    assert DEFAULTS["ui"]["theme"] == "dark"
+    assert DEFAULTS["cross_comm"]["dedup_by_mac"] is True
+
+
 def test_save_then_load_roundtrip(tmp_path, monkeypatch):
     path = tmp_path / "sub" / "settings.json"
     monkeypatch.setattr(settings_mod, "SETTINGS_PATH", str(path))
