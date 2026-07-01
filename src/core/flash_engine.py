@@ -35,6 +35,31 @@ class FlashWorker(QThread):
             self.finished.emit(False, str(e))
 
 
+class OperationWorker(QThread):
+    """Background thread for a one-shot device op (erase / backup / verify)."""
+
+    progress = pyqtSignal(int)        # 0-100 (backup only)
+    log_line = pyqtSignal(str)
+    finished = pyqtSignal(bool, str)  # (success, message)
+
+    def __init__(self, fn, kwargs, ok_message, wants_progress=False):
+        super().__init__()
+        self._fn = fn
+        self._kwargs = dict(kwargs)
+        self._ok = ok_message
+        self._wants_progress = wants_progress
+
+    def run(self):
+        try:
+            self._kwargs["log_cb"] = self.log_line.emit
+            if self._wants_progress:
+                self._kwargs["progress_cb"] = self.progress.emit
+            self._fn(**self._kwargs)
+            self.finished.emit(True, self._ok)
+        except Exception as e:
+            self.finished.emit(False, str(e))
+
+
 class FlashBackend:
     """Abstract flash backend."""
 
@@ -48,6 +73,9 @@ class FlashBackend:
 
     def verify(self, port, firmware, log_cb=None):
         raise NotImplementedError
+
+    def erase_flash(self, port, log_cb=None, **kwargs):
+        raise NotImplementedError(f"{self.name} backend does not support erase")
 
 
 class EsptoolBackend(FlashBackend):
@@ -423,6 +451,18 @@ class FlashEngine(QObject):
         if not backend:
             raise ValueError(f"Unknown backend: {backend_name}")
         self._active_worker = FlashWorker(backend, port, firmware_path, options)
+        return self._active_worker
+
+    def start_operation(self, backend_name, op_name, op_kwargs, ok_message,
+                        wants_progress=False):
+        """Return a worker that runs a one-shot backend op (erase / backup / verify)."""
+        backend = self.get_backend(backend_name)
+        if not backend:
+            raise ValueError(f"Unknown backend: {backend_name}")
+        fn = getattr(backend, op_name, None)
+        if not callable(fn):
+            raise ValueError(f"{backend_name} backend has no '{op_name}' operation")
+        self._active_worker = OperationWorker(fn, op_kwargs, ok_message, wants_progress)
         return self._active_worker
 
     def cancel(self):

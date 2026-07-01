@@ -42,6 +42,8 @@ Profile-driven firmware flashing with four backends:
 
 Flashing runs on a background `QThread`, so the UI stays responsive and streams esptool/qFlipper output line-by-line into the log. A batch queue lets you line up multiple (port, firmware) jobs.
 
+A **Device Operations** row exposes the esptool extras on demand — **Erase Flash**, **Backup (read-flash)** to a `.bin`, and **Verify** against the selected firmware — each on its own background worker (they're enabled only for esptool profiles). For a single flash, two of them also run automatically when you turn them on in Settings: *auto-backup before flash* (which aborts the flash if the backup fails) and *verify after flash*. The batch queue keeps things simple and skips both.
+
 Firmware is described by JSON profiles in [`src/config/profiles/`](src/config/profiles). Six ship in the box:
 
 - **ESP32 Marauder** (`marauder.json`)
@@ -81,7 +83,7 @@ This lets you orchestrate multi-device workflows (one device scans, another acts
 
 Serial, flash, and cross-comm defaults, persisted to `~/.universal-flasher-ui/settings.json`, plus a **Reload Profiles** button that re-reads the firmware profiles directory.
 
-> **Alpha note:** saved preferences persist across sessions but are not all applied at runtime yet (e.g. the serial connect path currently uses a fixed baud), and there is no theme selector — the `theme` value is stored but not consumed. Wiring these into the live flow is left for a later pass.
+> **Alpha note:** the flash **verify** and **auto-backup** settings are now applied on a single flash. Some other saved preferences persist but aren't consumed at runtime yet (e.g. the serial connect path uses a fixed baud, and the stored `theme` has no selector). Wiring the rest into the live flow is left for a later pass.
 
 ## Architecture
 

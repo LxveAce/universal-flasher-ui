@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QPushButton,
@@ -9,6 +10,7 @@ from PyQt5.QtCore import Qt
 
 from src.core.flash_engine import FlashEngine
 from src.core.profile_loader import ProfileLoader
+from src.config.settings import load_settings
 
 
 class FlashTab(QWidget):
@@ -23,6 +25,8 @@ class FlashTab(QWidget):
         self._firmware_path = ""
         self._batch_queue = []  # list of (port, profile_name, firmware_path)
         self._batch_active = False  # True only while a "Flash All" run is draining
+        self._pending_flash = None   # (port, profile) held while an auto-backup runs first
+        self._verify_after_flash = False  # set per single-flash from settings
 
         self._build_ui()
         self._connect_signals()
@@ -84,6 +88,21 @@ class FlashTab(QWidget):
         batch_layout.addLayout(add_row)
         layout.addWidget(batch_group)
 
+        # Device operations (on-demand: erase / read-flash backup / verify)
+        ops_group = QGroupBox("Device Operations")
+        ops_layout = QHBoxLayout(ops_group)
+        self.erase_btn = QPushButton("Erase Flash")
+        self.erase_btn.setToolTip("Erase all flash on the selected device (esptool)")
+        self.backup_btn = QPushButton("Backup (read-flash)")
+        self.backup_btn.setToolTip("Read the device's flash to a .bin file")
+        self.verify_btn = QPushButton("Verify")
+        self.verify_btn.setToolTip("Verify device flash against the selected firmware file")
+        for b in (self.erase_btn, self.backup_btn, self.verify_btn):
+            b.setEnabled(False)
+            ops_layout.addWidget(b)
+        ops_layout.addStretch()
+        layout.addWidget(ops_group)
+
         # Flash log
         self.log_output = QTextEdit()
         self.log_output.setReadOnly(True)
@@ -106,6 +125,9 @@ class FlashTab(QWidget):
         self.remove_from_queue_btn.clicked.connect(self._remove_from_queue)
         self.flash_all_btn.clicked.connect(self._flash_all)
         self.clear_queue_btn.clicked.connect(self._clear_queue)
+        self.erase_btn.clicked.connect(self._start_erase)
+        self.backup_btn.clicked.connect(self._start_backup)
+        self.verify_btn.clicked.connect(self._start_verify)
 
     def _load_profiles(self):
         """Load firmware profiles and populate the combo box."""
@@ -140,12 +162,23 @@ class FlashTab(QWidget):
         self._update_flash_btn()
 
     def _update_flash_btn(self, *_args):
-        """Enable flash button only when device and firmware are selected."""
+        """Enable buttons based on the current selection (and only when idle)."""
         has_device = self.device_combo.currentIndex() >= 0
         has_firmware = self.firmware_combo.currentIndex() >= 0
         has_file = bool(self._firmware_path) and os.path.isfile(self._firmware_path)
         not_flashing = not self.flash_engine.is_flashing
         self.flash_btn.setEnabled(has_device and has_firmware and has_file and not_flashing)
+        # Erase/backup/verify are esptool-only ops — only offer them for an esptool profile.
+        is_esptool = self._current_backend() == "esptool"
+        self.erase_btn.setEnabled(has_device and is_esptool and not_flashing)
+        self.backup_btn.setEnabled(has_device and is_esptool and not_flashing)
+        self.verify_btn.setEnabled(has_device and is_esptool and has_file and not_flashing)
+
+    def _lock_ui(self):
+        """Disable every action button while an operation is running."""
+        for b in (self.flash_btn, self.erase_btn, self.backup_btn, self.verify_btn,
+                  self.flash_all_btn, self.add_to_queue_btn):
+            b.setEnabled(False)
 
     def _browse_firmware(self):
         """Open file dialog to select a firmware binary."""
@@ -170,7 +203,7 @@ class FlashTab(QWidget):
         return self.device_combo.itemData(idx)
 
     def _start_flash(self):
-        """Start flashing the selected firmware to the selected device."""
+        """Validate the selection, optionally auto-backup first, then flash."""
         port = self._get_selected_port()
         if not port:
             return
@@ -185,18 +218,65 @@ class FlashTab(QWidget):
             self._log("[ERROR] No firmware file selected")
             return
 
+        if self.flash_engine.is_flashing:
+            return
+
+        flash_cfg = load_settings().get("flash", {})
+        # Remember whether to verify once the flash finishes (single-flash only).
+        self._verify_after_flash = bool(flash_cfg.get("verify", False))
+
         # Disconnect serial reader if connected (flash needs exclusive port access)
         if port in self.device_manager.connected_devices:
             self._log(f"[INFO] Disconnecting {port} for flashing...")
             self.device_manager.disconnect(port)
 
+        # Auto-backup before flash (opt-in). Only proceed to the actual flash once
+        # the backup has really succeeded; if it fails we abort rather than flash.
+        if flash_cfg.get("auto_backup", False) and profile.backend == "esptool":
+            backup_path = self._default_backup_path(port)
+            self._log(f"[INFO] Auto-backup before flash -> {backup_path}")
+            self._pending_flash = (port, profile)
+            self.progress.setValue(0)
+            self._lock_ui()
+            try:
+                worker = self.flash_engine.start_operation(
+                    profile.backend, "backup",
+                    {"port": port, "output_path": backup_path},
+                    "Backup complete", wants_progress=True,
+                )
+                self._active_worker = worker
+                worker.progress.connect(self._on_progress)
+                worker.log_line.connect(self._log)
+                worker.finished.connect(self._on_prebackup_finished)
+                worker.start()
+            except Exception as e:
+                self._log(f"[ERROR] {e}")
+                self._pending_flash = None
+                self._update_flash_btn()
+            return
+
+        self._do_flash(port, profile)
+
+    def _on_prebackup_finished(self, success, message):
+        """After an auto-backup: flash only if the backup actually succeeded."""
+        self._active_worker = None
+        pending = self._pending_flash
+        self._pending_flash = None
+        if not success:
+            self._log(f"[FAILED] Auto-backup failed, flash aborted: {message}")
+            self._update_flash_btn()
+            self._refresh_devices()
+            return
+        self._log("[SUCCESS] Auto-backup complete")
+        if pending:
+            self._do_flash(*pending)
+
+    def _do_flash(self, port, profile):
+        """Kick off the real flash worker for an already-validated port + profile."""
         self._log(f"[INFO] Starting flash: {profile.name} -> {port}")
         self.progress.setValue(0)
-        self.flash_btn.setEnabled(False)
-
-        # Build options from profile
+        self._lock_ui()
         options = dict(profile.flash_args)
-
         try:
             worker = self.flash_engine.start_flash(
                 backend_name=profile.backend,
@@ -211,7 +291,14 @@ class FlashTab(QWidget):
             worker.start()
         except Exception as e:
             self._log(f"[ERROR] {e}")
-            self.flash_btn.setEnabled(True)
+            self._update_flash_btn()
+
+    def _default_backup_path(self, port):
+        safe = "".join(c if c.isalnum() else "-" for c in str(port))
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        d = os.path.join(os.path.expanduser("~"), ".universal-flasher-ui", "backups")
+        os.makedirs(d, exist_ok=True)
+        return os.path.join(d, f"backup-{safe}-{stamp}.bin")
 
     def _on_progress(self, value):
         self.progress.setValue(value)
@@ -221,8 +308,14 @@ class FlashTab(QWidget):
         if success:
             self._log(f"[SUCCESS] {message}")
             self.progress.setValue(100)
+            # Verify after a single flash if the setting asked for it (batch skips it).
+            if self._verify_after_flash and not self._batch_active:
+                self._verify_after_flash = False
+                if self._start_verify_after_flash():
+                    return  # verify worker running; its finish re-enables the UI
         else:
             self._log(f"[FAILED] {message}")
+
         self._update_flash_btn()
         self._refresh_devices()
 
@@ -233,6 +326,112 @@ class FlashTab(QWidget):
             self._flash_next_in_queue()
         else:
             self._batch_active = False
+
+    def _start_verify_after_flash(self):
+        """Auto-verify the firmware just written; returns True if a worker started."""
+        port = self._get_selected_port()
+        backend = self._current_backend()
+        if not (port and backend == "esptool" and self._firmware_path):
+            return False
+        self._log("[INFO] Verifying flash (per settings)...")
+        self._lock_ui()
+        try:
+            worker = self.flash_engine.start_operation(
+                backend, "verify",
+                {"port": port, "firmware": self._firmware_path},
+                "Verification passed",
+            )
+            self._active_worker = worker
+            worker.log_line.connect(self._log)
+            worker.finished.connect(self._on_operation_finished)
+            worker.start()
+            return True
+        except Exception as e:
+            self._log(f"[ERROR] {e}")
+            return False
+
+    # -- On-demand device operations (erase / backup / verify) --
+
+    def _current_backend(self):
+        """Backend name from the selected firmware profile (needed for device ops)."""
+        idx = self.firmware_combo.currentIndex()
+        if idx < 0:
+            return None
+        profile = self.firmware_combo.itemData(idx)
+        return getattr(profile, "backend", None) if profile else None
+
+    def _run_operation(self, backend, op, kwargs, ok_msg, wants_progress=False):
+        if self.flash_engine.is_flashing:
+            return
+        self.progress.setValue(0)
+        self._lock_ui()
+        try:
+            worker = self.flash_engine.start_operation(backend, op, kwargs, ok_msg, wants_progress)
+            self._active_worker = worker
+            if wants_progress:
+                worker.progress.connect(self._on_progress)
+            worker.log_line.connect(self._log)
+            worker.finished.connect(self._on_operation_finished)
+            worker.start()
+        except Exception as e:
+            self._log(f"[ERROR] {e}")
+            self._update_flash_btn()
+
+    def _on_operation_finished(self, success, message):
+        self._active_worker = None
+        self._log(f"[{'SUCCESS' if success else 'FAILED'}] {message}")
+        self._update_flash_btn()
+        self._refresh_devices()
+
+    def _start_erase(self):
+        port = self._get_selected_port()
+        backend = self._current_backend()
+        if not port or not backend:
+            self._log("[ERROR] Select a device and a firmware profile (for the device type) first")
+            return
+        reply = QMessageBox.warning(
+            self, "Erase flash?",
+            f"This ERASES ALL data on the device at {port} and cannot be undone.\n\nContinue?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        if port in self.device_manager.connected_devices:
+            self.device_manager.disconnect(port)
+        self._log(f"[INFO] Erasing flash on {port}...")
+        self._run_operation(backend, "erase_flash", {"port": port}, "Erase complete")
+
+    def _start_backup(self):
+        port = self._get_selected_port()
+        backend = self._current_backend()
+        if not port or not backend:
+            self._log("[ERROR] Select a device and a firmware profile (for the device type) first")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save flash backup", "backup.bin", "Binary (*.bin);;All Files (*)")
+        if not path:
+            return
+        if port in self.device_manager.connected_devices:
+            self.device_manager.disconnect(port)
+        self._log(f"[INFO] Backing up {port} -> {path}")
+        self._run_operation(backend, "backup", {"port": port, "output_path": path},
+                            "Backup complete", wants_progress=True)
+
+    def _start_verify(self):
+        port = self._get_selected_port()
+        backend = self._current_backend()
+        if not port or not backend:
+            self._log("[ERROR] Select a device and a firmware profile first")
+            return
+        if not self._firmware_path or not os.path.isfile(self._firmware_path):
+            self._log("[ERROR] Select a firmware file to verify against")
+            return
+        if port in self.device_manager.connected_devices:
+            self.device_manager.disconnect(port)
+        self._log(f"[INFO] Verifying {port} against {os.path.basename(self._firmware_path)}...")
+        self._run_operation(backend, "verify",
+                            {"port": port, "firmware": self._firmware_path},
+                            "Verification passed")
 
     def _log(self, text):
         self.log_output.append(text)
