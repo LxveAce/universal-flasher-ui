@@ -2,12 +2,11 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QListWidget,
     QListWidgetItem, QTextEdit, QLineEdit, QPushButton, QGroupBox,
     QLabel, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView,
-    QMessageBox, QInputDialog,
 )
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt
 
 from src.core.serial_handler import SerialHandler
-from src.protocols import PROTOCOL_DISPLAY_NAMES, get_protocol_by_display, get_protocol
+from src.protocols import PROTOCOL_DISPLAY_NAMES, get_protocol_by_display
 
 
 class DeviceTab(QWidget):
