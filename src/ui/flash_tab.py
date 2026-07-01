@@ -22,6 +22,7 @@ class FlashTab(QWidget):
         self._active_worker = None
         self._firmware_path = ""
         self._batch_queue = []  # list of (port, profile_name, firmware_path)
+        self._batch_active = False  # True only while a "Flash All" run is draining
 
         self._build_ui()
         self._connect_signals()
@@ -225,9 +226,13 @@ class FlashTab(QWidget):
         self._update_flash_btn()
         self._refresh_devices()
 
-        # If batch queue has items, flash the next one
-        if self._batch_queue:
+        # Only continue draining when a "Flash All" run is active. A single
+        # "Flash" must not auto-flash items the user merely staged with
+        # "Add to Queue".
+        if self._batch_active and self._batch_queue:
             self._flash_next_in_queue()
+        else:
+            self._batch_active = False
 
     def _log(self, text):
         self.log_output.append(text)
@@ -263,6 +268,7 @@ class FlashTab(QWidget):
         if not self._batch_queue:
             self._log("[INFO] Batch queue is empty")
             return
+        self._batch_active = True
         self._log(f"[INFO] Starting batch flash: {len(self._batch_queue)} items")
         self._flash_next_in_queue()
 
