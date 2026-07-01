@@ -79,7 +79,9 @@ This lets you orchestrate multi-device workflows (one device scans, another acts
 
 ### 4. Settings
 
-App configuration, profile management, and theme.
+Serial, flash, and cross-comm defaults, persisted to `~/.universal-flasher-ui/settings.json`, plus a **Reload Profiles** button that re-reads the firmware profiles directory.
+
+> **Alpha note:** saved preferences persist across sessions but are not all applied at runtime yet (e.g. the serial connect path currently uses a fixed baud), and there is no theme selector — the `theme` value is stored but not consumed. Wiring these into the live flow is left for a later pass.
 
 ## Architecture
 
@@ -136,7 +138,7 @@ universal-flasher-ui/
 - **PyQt5** — desktop UI and threading (`QThread`, signals/slots)
 - **pyserial** — serial detection and I/O
 - **esptool** — ESP32 flashing (invoked as a subprocess)
-- **requests** — HTTP (profile/firmware downloads)
+- **requests** — declared for planned profile/firmware downloads (no downloader is wired up yet)
 - External CLIs used when present: **`adb`** (Android), **`qFlipper`** (Flipper Zero), **`dd`** (SD imaging on Linux/macOS)
 
 ## Install & run (from source)
@@ -162,6 +164,7 @@ The **[v0.1.0 release](https://github.com/LxveAce/universal-flasher-ui/releases/
 - `universal-flasher-ui-v0.1.0-windows-x64.exe`
 - `universal-flasher-ui-v0.1.0-macos`
 - `universal-flasher-ui-v0.1.0-linux-x64`
+- `universal-flasher-ui-v0.1.0-linux-arm64`
 
 Builds are produced by the [Build & Release](.github/workflows/build-release.yml) GitHub Actions workflow on each published release. To build locally:
 
