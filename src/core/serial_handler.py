@@ -40,8 +40,14 @@ class SerialHandler(QObject):
         self._buffers: dict[str, str] = {}
 
     def start_reading(self, port, connection):
-        if port in self._readers:
-            return
+        existing = self._readers.get(port)
+        if existing is not None:
+            if existing.isRunning():
+                return  # a live reader already owns this port
+            # A previous reader exited (e.g. on disconnect) but was never
+            # unregistered; drop it so a fresh reader can attach on reconnect.
+            self._readers.pop(port, None)
+            self._buffers.pop(port, None)
         reader = SerialReaderThread(port, connection)
         reader.data_received.connect(self._on_data)
         self._readers[port] = reader
