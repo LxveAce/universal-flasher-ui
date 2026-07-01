@@ -76,11 +76,21 @@ class CrossCommBroker(QObject):
             type_match = rule.get("match_type", "*") in ("*", target.type)
             source_match = rule.get("match_source", "*") in ("*", target.source_device)
             if type_match and source_match:
-                action = rule["action"].format(
-                    identifier=target.identifier,
-                    mac=target.mac or "",
-                    channel=target.channel or "",
-                )
+                try:
+                    action = rule["action"].format(
+                        identifier=target.identifier,
+                        mac=target.mac or "",
+                        channel=target.channel or "",
+                    )
+                except (KeyError, IndexError, ValueError) as e:
+                    # A user rule may contain an unsupported placeholder (e.g.
+                    # "{name}") or an unbalanced brace. Skip that rule instead of
+                    # letting the exception break the whole discovery pipeline.
+                    self._log(
+                        f"[RULE] Skipped route: bad action template "
+                        f"{rule.get('action')!r} ({e})"
+                    )
+                    continue
                 self.route_to_device(target, rule["dest_port"], action)
 
     def _log(self, msg: str):

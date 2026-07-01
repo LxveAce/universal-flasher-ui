@@ -98,6 +98,35 @@ def test_auto_route_source_filter():
     assert routed[0].action == "go AA:BB:CC:DD:EE:FF"
 
 
+def test_auto_route_bad_template_does_not_crash():
+    # The Add-Rule dialog's action field is free text, so a user can enter an
+    # unsupported placeholder. A bad template must be skipped, not crash publish.
+    broker = CrossCommBroker()
+    routed = []
+    broker.target_routed.connect(routed.append)
+
+    broker.subscribe({
+        "match_type": "AP",
+        "match_source": "*",
+        "dest_port": PORT_B,
+        "action": "clone {name}",  # {name} is not a provided placeholder
+    })
+    broker.publish(_ap(identifier="CoffeeShop"))  # must not raise
+
+    assert routed == []                      # the bad rule produced no route
+    assert len(broker.target_pool) == 1      # discovery still processed normally
+
+
+def test_auto_route_unbalanced_brace_does_not_crash():
+    broker = CrossCommBroker()
+    routed = []
+    broker.target_routed.connect(routed.append)
+    broker.subscribe({"match_type": "*", "dest_port": PORT_B, "action": "attack {"})
+    broker.publish(_ap())  # unbalanced brace -> ValueError inside format(); must be caught
+    assert routed == []
+    assert len(broker.target_pool) == 1
+
+
 def test_route_to_device_emits():
     broker = CrossCommBroker()
     routed = []
