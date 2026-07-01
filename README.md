@@ -17,8 +17,8 @@ This is the unified successor to two earlier tools by the same author:
 >
 > **v0.1.0 ("First Functional Release")** is the current and final tag of this repo. The flash engine,
 > serial controller, protocol parsers, and all four UI tabs are **implemented and wired** (this is no
-> longer a stub-only scaffold). It is, however, **early alpha** — lightly tested, with no automated test
-> suite yet — so treat it as experimental.
+> longer a stub-only scaffold). It is, however, **early alpha** — lightly tested, with only a young
+> unit-test suite (protocol parsers, profile loader, cross-comm broker, settings) — so treat it as experimental.
 >
 > Development of the unified-controller idea has **moved on to [cyber-controller](https://github.com/LxveAce)**,
 > which supersedes this repo. The mature, single-purpose tools — **[Universal Flasher](https://github.com/LxveAce/universal-flasher)**
@@ -108,7 +108,7 @@ universal-flasher-ui/
 │   └── config/
 │       ├── settings.py
 │       └── profiles/             # Firmware profile JSONs (6 included)
-├── tests/                        # Package present; no test cases yet
+├── tests/                        # Pytest suite (protocols, loader, broker, settings)
 ├── build.py                      # PyInstaller build script
 ├── pyproject.toml · requirements.txt
 └── .github/workflows/build-release.yml

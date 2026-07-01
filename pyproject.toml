@@ -38,6 +38,12 @@ Issues = "https://github.com/LxveAce/universal-flasher-ui/issues"
 [project.scripts]
 universal-flasher-ui = "src.main:main"
 
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
