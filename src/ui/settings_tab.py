@@ -3,11 +3,17 @@ from PyQt5.QtWidgets import (
     QSpinBox, QCheckBox, QLineEdit, QPushButton, QLabel,
     QMessageBox, QHBoxLayout,
 )
+from PyQt5.QtCore import pyqtSignal
 
 from src.config.settings import load_settings, save_settings
+from src.core.profile_loader import ProfileLoader
 
 
 class SettingsTab(QWidget):
+
+    # Emitted when the user clicks "Reload Profiles"; the main window routes
+    # this to the Flash tab so it re-reads the profiles directory from disk.
+    profiles_reload_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -62,6 +68,7 @@ class SettingsTab(QWidget):
         self.profile_dir = QLineEdit()
         self.profile_dir.setPlaceholderText("./src/config/profiles/")
         self.profile_dir.setReadOnly(True)
+        self.profile_dir.setText(ProfileLoader().profile_dir)
         self.reload_btn = QPushButton("Reload Profiles")
         profile_form.addRow("Profile Directory:", self.profile_dir)
         profile_form.addRow(self.reload_btn)
@@ -81,6 +88,7 @@ class SettingsTab(QWidget):
     def _connect_signals(self):
         self.save_btn.clicked.connect(self._save)
         self.reset_btn.clicked.connect(self._reset)
+        self.reload_btn.clicked.connect(lambda: self.profiles_reload_requested.emit())
 
     def _load_current(self):
         """Load current settings into the UI widgets."""

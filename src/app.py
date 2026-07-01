@@ -48,6 +48,9 @@ class UniversalFlasherUI(MainWindowMixin, QMainWindow):
         self.device_manager.device_connected.connect(self._on_device_connected)
         self.device_manager.device_disconnected.connect(self._on_device_disconnected)
 
+        # Settings "Reload Profiles" -> re-read the profile JSONs on the Flash tab
+        self.settings_tab.profiles_reload_requested.connect(self.flash_tab._load_profiles)
+
     def _on_device_connected(self, device):
         count = len(self.device_manager.connected_devices)
         self.status_bar.showMessage(f"{count} device(s) connected")
