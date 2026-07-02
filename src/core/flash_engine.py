@@ -207,7 +207,11 @@ class EsptoolBackend(FlashBackend):
 
     def backup(self, port, output_path, progress_cb=None, log_cb=None,
                baud=921600, chip="auto", flash_size="0x400000"):
-        """Read entire flash contents and save to file."""
+        """Read flash contents (``flash_size`` bytes from 0x0, default 4 MB) and save to file.
+
+        Note: reads exactly ``flash_size`` — on boards larger than the default this backup is
+        truncated. Pass the true size (or detect it via ``flash_id``) for a complete image.
+        """
         if log_cb:
             log_cb(f"[esptool] Backing up firmware from {port} to {output_path}...")
 
