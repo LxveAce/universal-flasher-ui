@@ -116,10 +116,10 @@ class EsptoolBackend(FlashBackend):
             cmd.append("--after=hard_reset")
 
         cmd.extend([
-            "write_flash",
-            "--flash_mode", str(flash_mode),
-            "--flash_size", str(flash_size),
-            "--flash_freq", str(flash_freq),
+            "write-flash",
+            "--flash-mode", str(flash_mode),
+            "--flash-size", str(flash_size),
+            "--flash-freq", str(flash_freq),
         ])
 
         # Handle address+binary pairs from kwargs, or default to 0x0
@@ -188,7 +188,7 @@ class EsptoolBackend(FlashBackend):
             "--chip", str(chip),
             "--port", str(port),
             "--baud", str(baud),
-            "erase_flash",
+            "erase-flash",
         ]
 
         process = subprocess.Popen(
@@ -216,7 +216,7 @@ class EsptoolBackend(FlashBackend):
             "--chip", str(chip),
             "--port", str(port),
             "--baud", str(baud),
-            "read_flash",
+            "read-flash",
             "0x0", str(flash_size),
             str(output_path),
         ]
@@ -257,7 +257,7 @@ class EsptoolBackend(FlashBackend):
             "--chip", str(chip),
             "--port", str(port),
             "--baud", str(baud),
-            "verify_flash",
+            "verify-flash",
             "0x0", str(firmware),
         ]
 
