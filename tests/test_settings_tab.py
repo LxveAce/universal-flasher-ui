@@ -51,6 +51,22 @@ def test_reload_refreshes_flash_tab_profiles(qapp):
     settings.deleteLater()
 
 
+def test_reset_does_not_corrupt_module_defaults(qapp):
+    """Reset-to-Defaults must deep-copy DEFAULTS; otherwise mutating the tab's (public) settings would
+    corrupt the module-level DEFAULTS that load_settings() falls back to for a missing/corrupt file."""
+    from src.config import settings as settings_module
+    from src.ui.settings_tab import SettingsTab
+
+    tab = SettingsTab()
+    try:
+        before = settings_module.DEFAULTS["serial"]["timeout"]
+        tab._reset()
+        tab.get_settings()["serial"]["timeout"] = 999   # a consumer mutates the returned settings
+        assert settings_module.DEFAULTS["serial"]["timeout"] == before   # DEFAULTS untouched
+    finally:
+        tab.deleteLater()
+
+
 def test_app_window_wires_reload(qapp):
     """The assembled main window connects Reload -> Flash tab refresh."""
     from src.app import UniversalFlasherUI

@@ -141,8 +141,12 @@ class SettingsTab(QWidget):
 
     def _reset(self):
         """Reset all settings to defaults."""
+        import copy
         from src.config.settings import DEFAULTS
-        self._settings = dict(DEFAULTS)
+        # Deep copy: a plain dict(DEFAULTS) shares the nested dicts, so a later mutation of this tab's
+        # settings (e.g. via the public get_settings()) would corrupt the module-level DEFAULTS that
+        # load_settings() falls back to.
+        self._settings = copy.deepcopy(DEFAULTS)
         self._load_current()
 
     def showEvent(self, event):
