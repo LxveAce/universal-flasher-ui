@@ -4,9 +4,8 @@ from datetime import datetime
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QComboBox, QPushButton,
     QProgressBar, QLabel, QGroupBox, QListWidget, QTextEdit,
-    QFileDialog, QMessageBox, QListWidgetItem,
+    QFileDialog, QMessageBox,
 )
-from PyQt5.QtCore import Qt
 
 from src.core.flash_engine import FlashEngine
 from src.core.profile_loader import ProfileLoader
@@ -173,6 +172,12 @@ class FlashTab(QWidget):
         self.erase_btn.setEnabled(has_device and is_esptool and not_flashing)
         self.backup_btn.setEnabled(has_device and is_esptool and not_flashing)
         self.verify_btn.setEnabled(has_device and is_esptool and has_file and not_flashing)
+        # Queue controls: re-enable them when idle so _lock_ui() (which disables ALL buttons during an
+        # operation) doesn't strand them — previously only flash/erase/backup/verify were re-enabled, so
+        # Flash-All and Add-to-Queue stayed disabled after the first flash. Add-to-Queue needs a full
+        # selection; Flash-All needs a non-empty queue.
+        self.add_to_queue_btn.setEnabled(has_device and has_firmware and has_file and not_flashing)
+        self.flash_all_btn.setEnabled(not_flashing and bool(self._batch_queue))
 
     def _lock_ui(self):
         """Disable every action button while an operation is running."""
@@ -451,24 +456,34 @@ class FlashTab(QWidget):
         self._batch_queue.append(entry)
         display = f"{port} <- {profile_name} ({os.path.basename(self._firmware_path)})"
         self.queue_list.addItem(display)
+        self._update_flash_btn()        # a non-empty queue enables Flash-All
 
     def _remove_from_queue(self):
         row = self.queue_list.currentRow()
         if row >= 0:
             self.queue_list.takeItem(row)
             self._batch_queue.pop(row)
+            self._update_flash_btn()
 
     def _clear_queue(self):
         self.queue_list.clear()
         self._batch_queue.clear()
+        self._update_flash_btn()
 
     def _flash_all(self):
         """Flash all items in the batch queue sequentially."""
+        # Re-entry guard (parity with _start_flash / _run_operation): the batch flow does not lock the
+        # UI on every hop, so without this a second "Flash All" while a flash is already running would
+        # overwrite the live worker reference — orphaning a still-running QThread (crash) and driving two
+        # esptools onto the same port.
+        if self.flash_engine.is_flashing:
+            return
         if not self._batch_queue:
             self._log("[INFO] Batch queue is empty")
             return
         self._batch_active = True
         self._log(f"[INFO] Starting batch flash: {len(self._batch_queue)} items")
+        self._lock_ui()                 # reflect the running state, like a single flash does
         self._flash_next_in_queue()
 
     def _flash_next_in_queue(self):

@@ -71,4 +71,31 @@ def test_flash_all_on_empty_queue_stays_inactive(flash):
     flash._batch_queue = []
     flash._flash_all()
     assert flash._batch_active is False
-    assert calls == []
+
+
+def test_flash_all_refused_while_already_flashing(flash):
+    """Re-clicking Flash All mid-flash must NOT start a second worker (which would orphan the running
+    QThread and drive two esptools onto one port)."""
+    calls = []
+    flash._flash_next_in_queue = lambda: calls.append(1)
+
+    class _Running:
+        def isRunning(self):
+            return True
+
+    flash.flash_engine._active_worker = _Running()      # a flash/op is already in progress
+    flash._batch_queue = [("COM1", "marauder", "f.bin")]
+    flash._flash_all()
+
+    assert calls == []                                  # refused — no second batch kicked off
+    assert flash._batch_active is False
+
+
+def test_update_flash_btn_reenables_flash_all_when_idle(flash):
+    """_lock_ui() disables every button; _update_flash_btn() must re-enable the queue controls when
+    idle (previously it only re-enabled flash/erase/backup/verify, stranding Flash-All disabled)."""
+    flash._lock_ui()
+    assert flash.flash_all_btn.isEnabled() is False
+    flash._batch_queue = [("COM1", "marauder", "f.bin")]
+    flash._update_flash_btn()
+    assert flash.flash_all_btn.isEnabled() is True      # was stuck False before the fix
