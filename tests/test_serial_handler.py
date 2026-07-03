@@ -71,3 +71,38 @@ def test_start_then_stop_registers_and_cleans(qapp):
     h.stop_reading("COM9")
     assert "COM9" not in h._readers
     assert "COM9" not in h._buffers
+
+
+def test_on_data_splits_lines_and_holds_partial(qapp):
+    """Regression guard: normal newline splitting + partial-line carry-over is unchanged."""
+    from src.core.serial_handler import SerialHandler
+
+    h = SerialHandler()
+    seen = []
+    h.line_received.connect(lambda p, ln: seen.append((p, ln)))
+    h._buffers["COM9"] = ""
+
+    h._on_data("COM9", "hello\nwor")
+    assert seen == [("COM9", "hello")]        # complete line emitted
+    assert h._buffers["COM9"] == "wor"        # partial held for the next chunk
+
+    h._on_data("COM9", "ld\n")
+    assert seen[-1] == ("COM9", "world")      # partial completed
+    assert h._buffers["COM9"] == ""
+
+
+def test_on_data_flushes_overlong_newlineless_buffer(qapp):
+    """A stream with no newline must not grow the per-port buffer without bound."""
+    from src.core.serial_handler import SerialHandler
+
+    h = SerialHandler()
+    seen = []
+    h.line_received.connect(lambda p, ln: seen.append((p, ln)))
+    h._buffers["COM9"] = ""
+
+    blob = "A" * (h._MAX_LINE_BUFFER + 100)    # no newline anywhere
+    h._on_data("COM9", blob)
+
+    assert len(seen) == 1                       # flushed as one line instead of buffered forever
+    assert h._buffers["COM9"] == ""             # buffer reset — memory stays bounded
+    assert len(h._buffers["COM9"]) <= h._MAX_LINE_BUFFER

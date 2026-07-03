@@ -34,6 +34,11 @@ class SerialHandler(QObject):
 
     line_received = pyqtSignal(str, str)  # (port, line)
 
+    # A device that streams without newlines (raw binary chatter, a wedged board spewing bytes) would
+    # otherwise grow the per-port line buffer without bound. Flush an over-long partial line as its own
+    # line so the bytes still reach consumers and memory stays bounded.
+    _MAX_LINE_BUFFER = 65536
+
     def __init__(self):
         super().__init__()
         self._readers: dict[str, SerialReaderThread] = {}
@@ -65,7 +70,12 @@ class SerialHandler(QObject):
             self.stop_reading(port)
 
     def _on_data(self, port, data):
-        self._buffers[port] = self._buffers.get(port, "") + data
-        while "\n" in self._buffers[port]:
-            line, self._buffers[port] = self._buffers[port].split("\n", 1)
+        buf = self._buffers.get(port, "") + data
+        while "\n" in buf:
+            line, buf = buf.split("\n", 1)
             self.line_received.emit(port, line.strip())
+        if len(buf) > self._MAX_LINE_BUFFER:
+            # No newline in a very long run of bytes — flush it rather than buffer forever.
+            self.line_received.emit(port, buf.strip())
+            buf = ""
+        self._buffers[port] = buf
