@@ -1,6 +1,5 @@
 import os
 import sys
-import io
 import re
 import subprocess
 
@@ -86,6 +85,49 @@ class EsptoolBackend(FlashBackend):
     # Regex to pull percentage out of esptool's progress output
     PROGRESS_RE = re.compile(r"(\d+)\s*%")
 
+    def _stream(self, cmd, log_cb, tag, progress_cb=None):
+        """Run ``cmd``, stream combined stdout/stderr line-by-line via ``log_cb``, parse a percentage
+        for ``progress_cb``, and return the exit code.
+
+        The child is ALWAYS reaped and the pipe ALWAYS closed on the way out — even if the read loop
+        raises (a broken pipe, a callback error) or the caller aborts the thread. Without that finally a
+        failed/cancelled flash would orphan esptool still holding the serial port, so the next op fails
+        'port busy'. Popen stays outside the try so a missing executable raises FileNotFoundError to the
+        caller (which maps it to a friendly install hint) rather than being masked here.
+        """
+        process = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+        )
+        last_pct = 0
+        try:
+            for line in iter(process.stdout.readline, ""):
+                line = line.rstrip()
+                if not line:
+                    continue
+                if log_cb:
+                    log_cb(f"[{tag}] {line}")
+                if progress_cb:
+                    pct_match = self.PROGRESS_RE.search(line)
+                    if pct_match:
+                        pct = int(pct_match.group(1))
+                        if pct > last_pct:
+                            last_pct = pct
+                            progress_cb(pct)
+            process.wait()
+            return process.returncode
+        finally:
+            if process.poll() is None:          # still alive after an exception/abort — don't orphan it
+                try:
+                    process.kill()
+                    process.wait(timeout=5)
+                except Exception:
+                    pass
+            try:
+                if process.stdout:
+                    process.stdout.close()
+            except Exception:
+                pass
+
     def flash(self, port, firmware, progress_cb=None, log_cb=None,
               baud=921600, flash_mode="dio", flash_size="detect",
               flash_freq="40m", erase_before=True, chip="auto", **kwargs):
@@ -136,47 +178,21 @@ class EsptoolBackend(FlashBackend):
         if progress_cb:
             progress_cb(0)
 
-        # Run esptool as a subprocess to capture real-time output
+        # Run esptool as a subprocess to capture real-time output (child always reaped — see _stream).
         try:
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-            )
-
-            last_pct = 0
-            for line in iter(process.stdout.readline, ""):
-                line = line.rstrip()
-                if not line:
-                    continue
-
-                if log_cb:
-                    log_cb(f"[esptool] {line}")
-
-                # Parse progress percentage from esptool output
-                pct_match = self.PROGRESS_RE.search(line)
-                if pct_match and progress_cb:
-                    pct = int(pct_match.group(1))
-                    if pct > last_pct:
-                        last_pct = pct
-                        progress_cb(pct)
-
-            process.wait()
-
-            if process.returncode != 0:
-                raise RuntimeError(f"esptool exited with code {process.returncode}")
-
-            if progress_cb:
-                progress_cb(100)
-            if log_cb:
-                log_cb("[esptool] Flash completed successfully")
-
+            rc = self._stream(cmd, log_cb, "esptool", progress_cb)
         except FileNotFoundError:
             raise RuntimeError(
                 "esptool not found. Install with: pip install esptool"
             )
+
+        if rc != 0:
+            raise RuntimeError(f"esptool exited with code {rc}")
+
+        if progress_cb:
+            progress_cb(100)
+        if log_cb:
+            log_cb("[esptool] Flash completed successfully")
 
     def erase_flash(self, port, log_cb=None, baud=921600, chip="auto"):
         """Erase entire flash on the device."""
@@ -191,17 +207,9 @@ class EsptoolBackend(FlashBackend):
             "erase-flash",
         ]
 
-        process = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-        )
-        for line in iter(process.stdout.readline, ""):
-            line = line.rstrip()
-            if line and log_cb:
-                log_cb(f"[esptool] {line}")
-
-        process.wait()
-        if process.returncode != 0:
-            raise RuntimeError(f"erase_flash failed (exit code {process.returncode})")
+        rc = self._stream(cmd, log_cb, "esptool")
+        if rc != 0:
+            raise RuntimeError(f"erase_flash failed (exit code {rc})")
         if log_cb:
             log_cb("[esptool] Erase complete")
 
@@ -225,27 +233,9 @@ class EsptoolBackend(FlashBackend):
             str(output_path),
         ]
 
-        process = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-        )
-
-        last_pct = 0
-        for line in iter(process.stdout.readline, ""):
-            line = line.rstrip()
-            if not line:
-                continue
-            if log_cb:
-                log_cb(f"[esptool] {line}")
-            pct_match = self.PROGRESS_RE.search(line)
-            if pct_match and progress_cb:
-                pct = int(pct_match.group(1))
-                if pct > last_pct:
-                    last_pct = pct
-                    progress_cb(pct)
-
-        process.wait()
-        if process.returncode != 0:
-            raise RuntimeError(f"read_flash failed (exit code {process.returncode})")
+        rc = self._stream(cmd, log_cb, "esptool", progress_cb)
+        if rc != 0:
+            raise RuntimeError(f"read_flash failed (exit code {rc})")
         if progress_cb:
             progress_cb(100)
         if log_cb:
@@ -265,16 +255,8 @@ class EsptoolBackend(FlashBackend):
             "0x0", str(firmware),
         ]
 
-        process = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-        )
-        for line in iter(process.stdout.readline, ""):
-            line = line.rstrip()
-            if line and log_cb:
-                log_cb(f"[esptool] {line}")
-
-        process.wait()
-        if process.returncode != 0:
+        rc = self._stream(cmd, log_cb, "esptool")
+        if rc != 0:
             raise RuntimeError("Verification failed — flash contents do not match")
         if log_cb:
             log_cb("[esptool] Verification passed")

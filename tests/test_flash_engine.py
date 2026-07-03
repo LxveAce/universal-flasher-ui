@@ -70,3 +70,57 @@ def test_base_backend_erase_raises_not_implemented(qapp):
     # non-esptool backends inherit a base erase_flash that fails clearly at run time
     with pytest.raises(NotImplementedError):
         QFlipperBackend().erase_flash("COM_X")
+
+
+# --- EsptoolBackend._stream always reaps the child + closes the pipe --------- #
+class _FakeProc:
+    def __init__(self, lines, rc=0, readline_raises=None):
+        self._lines = iter(list(lines) + [""])
+        self.returncode = rc
+        self._alive = True
+        self.killed = False
+        self.closed = False
+        self._readline_raises = readline_raises
+        self.stdout = self          # act as our own stdout stream
+
+    def readline(self):
+        if self._readline_raises:
+            raise self._readline_raises
+        return next(self._lines)
+
+    def wait(self, timeout=None):
+        self._alive = False
+        return self.returncode
+
+    def poll(self):
+        return None if self._alive else self.returncode
+
+    def kill(self):
+        self.killed = True
+        self._alive = False
+
+    def close(self):
+        self.closed = True
+
+
+def test_stream_returns_rc_streams_and_closes_pipe(qapp, monkeypatch):
+    from src.core import flash_engine
+    fake = _FakeProc(["Writing at 0x0... 50 %", "Hash of data verified."], rc=0)
+    monkeypatch.setattr(flash_engine.subprocess, "Popen", lambda *a, **k: fake)
+    logs, pcts = [], []
+    rc = flash_engine.EsptoolBackend()._stream(["x"], logs.append, "esptool", pcts.append)
+    assert rc == 0
+    assert fake.closed is True                    # pipe closed on the normal path
+    assert any("50" in ln for ln in logs)         # output streamed
+    assert 50 in pcts                             # progress parsed
+
+
+def test_stream_reaps_child_and_closes_pipe_on_error(qapp, monkeypatch):
+    """A broken pipe / callback error mid-stream must not orphan esptool holding the serial port."""
+    from src.core import flash_engine
+    fake = _FakeProc([], readline_raises=OSError("pipe broke"))
+    monkeypatch.setattr(flash_engine.subprocess, "Popen", lambda *a, **k: fake)
+    with pytest.raises(OSError):
+        flash_engine.EsptoolBackend()._stream(["x"], None, "esptool")
+    assert fake.killed is True                    # still-alive child was killed, not orphaned
+    assert fake.closed is True                    # pipe closed even on the exception path
