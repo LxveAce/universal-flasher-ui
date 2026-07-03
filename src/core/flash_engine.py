@@ -77,6 +77,53 @@ class FlashBackend:
         raise NotImplementedError(f"{self.name} backend does not support erase")
 
 
+def _stream_process(cmd, log_cb, tag, progress_cb=None, progress_re=None, out_lines=None):
+    """Run ``cmd``, stream combined stdout/stderr line-by-line via ``log_cb`` (prefixed ``[tag]``),
+    optionally parse a percentage (``progress_re`` + ``progress_cb``) and/or collect the lines into
+    ``out_lines``. Return the exit code.
+
+    The child is ALWAYS reaped and the pipe ALWAYS closed on the way out — even if the read loop raises
+    (a broken pipe, a callback error) or the caller aborts the worker thread. Without that finally a
+    failed/cancelled op would orphan the subprocess still holding the serial port / SD device, so the
+    next op fails 'busy'. Popen stays OUTSIDE the try so a missing executable raises FileNotFoundError to
+    the caller (which maps it to a friendly install hint) rather than being masked here.
+    """
+    process = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+    )
+    last_pct = 0
+    try:
+        for line in iter(process.stdout.readline, ""):
+            line = line.rstrip()
+            if not line:
+                continue
+            if log_cb:
+                log_cb(f"[{tag}] {line}")
+            if out_lines is not None:
+                out_lines.append(line)
+            if progress_cb and progress_re is not None:
+                pct_match = progress_re.search(line)
+                if pct_match:
+                    pct = int(pct_match.group(1))
+                    if pct > last_pct:
+                        last_pct = pct
+                        progress_cb(pct)
+        process.wait()
+        return process.returncode
+    finally:
+        if process.poll() is None:              # still alive after an exception/abort — don't orphan it
+            try:
+                process.kill()
+                process.wait(timeout=5)
+            except Exception:
+                pass
+        try:
+            if process.stdout:
+                process.stdout.close()
+        except Exception:
+            pass
+
+
 class EsptoolBackend(FlashBackend):
     """ESP32 flashing via esptool."""
 
@@ -86,47 +133,9 @@ class EsptoolBackend(FlashBackend):
     PROGRESS_RE = re.compile(r"(\d+)\s*%")
 
     def _stream(self, cmd, log_cb, tag, progress_cb=None):
-        """Run ``cmd``, stream combined stdout/stderr line-by-line via ``log_cb``, parse a percentage
-        for ``progress_cb``, and return the exit code.
-
-        The child is ALWAYS reaped and the pipe ALWAYS closed on the way out — even if the read loop
-        raises (a broken pipe, a callback error) or the caller aborts the thread. Without that finally a
-        failed/cancelled flash would orphan esptool still holding the serial port, so the next op fails
-        'port busy'. Popen stays outside the try so a missing executable raises FileNotFoundError to the
-        caller (which maps it to a friendly install hint) rather than being masked here.
-        """
-        process = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
-        )
-        last_pct = 0
-        try:
-            for line in iter(process.stdout.readline, ""):
-                line = line.rstrip()
-                if not line:
-                    continue
-                if log_cb:
-                    log_cb(f"[{tag}] {line}")
-                if progress_cb:
-                    pct_match = self.PROGRESS_RE.search(line)
-                    if pct_match:
-                        pct = int(pct_match.group(1))
-                        if pct > last_pct:
-                            last_pct = pct
-                            progress_cb(pct)
-            process.wait()
-            return process.returncode
-        finally:
-            if process.poll() is None:          # still alive after an exception/abort — don't orphan it
-                try:
-                    process.kill()
-                    process.wait(timeout=5)
-                except Exception:
-                    pass
-            try:
-                if process.stdout:
-                    process.stdout.close()
-            except Exception:
-                pass
+        """Stream an esptool subprocess with progress parsing (thin wrapper over the shared
+        _stream_process, kept as a method so existing esptool callers/tests are unchanged)."""
+        return _stream_process(cmd, log_cb, tag, progress_cb=progress_cb, progress_re=self.PROGRESS_RE)
 
     def flash(self, port, firmware, progress_cb=None, log_cb=None,
               baud=921600, flash_mode="dio", flash_size="detect",
@@ -300,17 +309,9 @@ class SDImageBackend(FlashBackend):
             if log_cb:
                 log_cb(f"[sd-image] Running: {' '.join(cmd)}")
 
-            process = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-            )
-            for line in iter(process.stdout.readline, ""):
-                line = line.rstrip()
-                if line and log_cb:
-                    log_cb(f"[sd-image] {line}")
-
-            process.wait()
-            if process.returncode != 0:
-                raise RuntimeError(f"dd failed with exit code {process.returncode}")
+            rc = _stream_process(cmd, log_cb, "sd-image")     # child always reaped — see _stream_process
+            if rc != 0:
+                raise RuntimeError(f"dd failed with exit code {rc}")
 
         if progress_cb:
             progress_cb(100)
@@ -328,25 +329,14 @@ class ADBBackend(FlashBackend):
         if log_cb:
             log_cb(f"[adb] Running: {' '.join(cmd)}")
 
+        output_lines = []
         try:
-            process = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-            )
-            output_lines = []
-            for line in iter(process.stdout.readline, ""):
-                line = line.rstrip()
-                if line:
-                    if log_cb:
-                        log_cb(f"[adb] {line}")
-                    output_lines.append(line)
-
-            process.wait()
-            if process.returncode != 0:
-                raise RuntimeError(f"adb command failed (exit code {process.returncode})")
-            return "\n".join(output_lines)
-
+            rc = _stream_process(cmd, log_cb, "adb", out_lines=output_lines)
         except FileNotFoundError:
             raise RuntimeError("adb not found. Install Android SDK platform-tools.")
+        if rc != 0:
+            raise RuntimeError(f"adb command failed (exit code {rc})")
+        return "\n".join(output_lines)
 
     def flash(self, port, firmware, progress_cb=None, log_cb=None, **kwargs):
         """Push and install firmware/APK via ADB."""
@@ -390,27 +380,18 @@ class QFlipperBackend(FlashBackend):
             progress_cb(0)
 
         try:
-            process = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-            )
-            for line in iter(process.stdout.readline, ""):
-                line = line.rstrip()
-                if line and log_cb:
-                    log_cb(f"[qflipper] {line}")
-
-            process.wait()
-            if process.returncode != 0:
-                raise RuntimeError(f"qFlipper exited with code {process.returncode}")
-
-            if progress_cb:
-                progress_cb(100)
-            if log_cb:
-                log_cb("[qflipper] Flash complete")
-
+            rc = _stream_process(cmd, log_cb, "qflipper")
         except FileNotFoundError:
             raise RuntimeError(
                 "qFlipper not found. Download from https://flipperzero.one/update"
             )
+        if rc != 0:
+            raise RuntimeError(f"qFlipper exited with code {rc}")
+
+        if progress_cb:
+            progress_cb(100)
+        if log_cb:
+            log_cb("[qflipper] Flash complete")
 
 
 BACKENDS = {
