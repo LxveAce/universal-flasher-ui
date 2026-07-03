@@ -44,8 +44,8 @@ class MarauderProtocol(DeviceProtocol):
                 type="AP",
                 identifier=ap_match.group(1),
                 mac=ap_match.group(2),
-                channel=int(ap_match.group(3)),
-                rssi=int(ap_match.group(4)),
+                channel=self._to_int(ap_match.group(3)),
+                rssi=self._to_int(ap_match.group(4)),
                 source_device=source_port,
             )
 
@@ -55,7 +55,7 @@ class MarauderProtocol(DeviceProtocol):
                 type="STA",
                 identifier=sta_match.group(1),
                 mac=sta_match.group(1),
-                rssi=int(sta_match.group(2)),
+                rssi=self._to_int(sta_match.group(2)),
                 source_device=source_port,
             )
 

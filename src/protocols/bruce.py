@@ -81,8 +81,8 @@ class BruceProtocol(DeviceProtocol):
                 type="AP",
                 identifier=m.group(1).strip(),
                 mac=m.group(2),
-                channel=int(m.group(3)),
-                rssi=int(m.group(4)),
+                channel=self._to_int(m.group(3)),
+                rssi=self._to_int(m.group(4)),
                 source_device=source_port,
             )
 
@@ -93,7 +93,7 @@ class BruceProtocol(DeviceProtocol):
                 type="BLE",
                 identifier=m.group(1).strip(),
                 mac=m.group(2),
-                rssi=int(m.group(3)),
+                rssi=self._to_int(m.group(3)),
                 source_device=source_port,
             )
 

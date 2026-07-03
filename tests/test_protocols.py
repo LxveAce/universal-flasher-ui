@@ -234,6 +234,41 @@ def test_halehound_oversized_numeric_field_does_not_crash():
     assert ok.channel == 6
 
 
+# -- Untrusted numeric fields must not crash parse_line (UFUI-9 / systemic) -----
+
+def test_oversized_numeric_fields_never_crash_any_parser():
+    """Every parser feeds device-derived numeric groups to int()/float(); a pathologically long or
+    malformed field must degrade (None/default), not raise out of parse_line (device_tab has no guard)."""
+    big = "9" * 5000
+    # (parser, line-with-garbage-numeric, line-with-valid-numeric-and-expected-int)
+    cases = [
+        (BruceProtocol(),
+         f"[WIFI] AP: N | BSSID: AA:BB:CC:DD:EE:FF | CH: {big} | RSSI: -42",
+         "[WIFI] AP: N | BSSID: AA:BB:CC:DD:EE:FF | CH: 6 | RSSI: -42", 6),
+        (GhostESPProtocol(),
+         f"[WiFi] SSID: N | BSSID: AA:BB:CC:DD:EE:FF | CH: {big} | RSSI: -42",
+         "[WiFi] SSID: N | BSSID: AA:BB:CC:DD:EE:FF | CH: 11 | RSSI: -42", 11),
+        (MarauderProtocol(),
+         f"SSID: N BSSID: AA:BB:CC:DD:EE:FF Ch: {big} RSSI: -42",
+         "SSID: N BSSID: AA:BB:CC:DD:EE:FF Ch: 6 RSSI: -42", 6),
+    ]
+    for proto, bad, good, expect_ch in cases:
+        t = proto.parse_line(bad, PORT)          # must not raise
+        assert t is not None
+        assert t.channel is None                 # oversized channel rejected safely
+        assert t.rssi == -42                      # valid RSSI still parses
+        ok = proto.parse_line(good, PORT)
+        assert ok.channel == expect_ch            # normal value unaffected
+
+    # Flipper's SubGHz RSSI goes through float(); a malformed dotted value must not raise.
+    fp = FlipperProtocol()
+    bad_sg = "SubGhz: Protocol: Princeton | Key: 0x1 | Freq: 433.92 MHz | RSSI: 1.2.3.4"
+    t = fp.parse_line(bad_sg, PORT)               # must not raise (was ValueError)
+    assert t is not None and t.type == "SubGHz"
+    good_sg = "SubGhz: Protocol: Princeton | Key: 0x1 | Freq: 433.92 MHz | RSSI: -30.5"
+    assert fp.parse_line(good_sg, PORT).rssi == -30
+
+
 # -- Registry + non-matching lines -----------------------------------------
 
 def test_registry_lookup():

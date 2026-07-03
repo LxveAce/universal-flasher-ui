@@ -66,8 +66,8 @@ class GhostESPProtocol(DeviceProtocol):
                 type="AP",
                 identifier=m.group(1).strip(),
                 mac=m.group(2),
-                channel=int(m.group(3)),
-                rssi=int(m.group(4)),
+                channel=self._to_int(m.group(3)),
+                rssi=self._to_int(m.group(4)),
                 source_device=source_port,
             )
 
@@ -78,8 +78,8 @@ class GhostESPProtocol(DeviceProtocol):
                 type="AP",
                 identifier=m.group(1).strip(),
                 mac=m.group(2),
-                channel=int(m.group(3)),
-                rssi=int(m.group(4)),
+                channel=self._to_int(m.group(3)),
+                rssi=self._to_int(m.group(4)),
                 source_device=source_port,
             )
 
@@ -90,7 +90,7 @@ class GhostESPProtocol(DeviceProtocol):
                 type="STA",
                 identifier=m.group(1),
                 mac=m.group(1),
-                rssi=int(m.group(2)),
+                rssi=self._to_int(m.group(2)),
                 source_device=source_port,
             )
 
@@ -101,7 +101,7 @@ class GhostESPProtocol(DeviceProtocol):
                 type="BLE",
                 identifier=m.group(1).strip(),
                 mac=m.group(2),
-                rssi=int(m.group(3)),
+                rssi=self._to_int(m.group(3)),
                 source_device=source_port,
             )
 

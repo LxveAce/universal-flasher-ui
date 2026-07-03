@@ -96,7 +96,9 @@ class FlipperProtocol(DeviceProtocol):
             rssi = 0
             rssi_m = self.SUBGHZ_RSSI.search(line)
             if rssi_m:
-                rssi = int(float(rssi_m.group(2)))
+                rssi_val = self._to_float(rssi_m.group(2))   # untrusted: guard malformed/huge (no crash)
+                if rssi_val is not None:
+                    rssi = int(rssi_val)
             return Target(
                 type="SubGHz",
                 identifier=f"{m.group(1)}: {m.group(2)}",
@@ -161,7 +163,7 @@ class FlipperProtocol(DeviceProtocol):
                 type="BLE",
                 identifier=m.group(1).strip(),
                 mac=m.group(2),
-                rssi=int(m.group(3)),
+                rssi=self._to_int(m.group(3)),
                 source_device=source_port,
             )
 
