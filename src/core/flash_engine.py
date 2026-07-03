@@ -104,6 +104,39 @@ def _sd_subtree_mountpoints(node):
     return mps
 
 
+def _macos_whole_disk_id(ident):
+    """'/dev/disk4s1' / 'rdisk4' / 'disk4s2' -> 'disk4' (the macOS whole-disk id of a path/slice)."""
+    ident = (ident or "").rsplit("/", 1)[-1]      # strip any /dev/ prefix
+    if ident.startswith("r"):                      # rdiskN (raw node) -> diskN
+        ident = ident[1:]
+    m = re.match(r"^(disk\d+)", ident)
+    return m.group(1) if m else ident
+
+
+def _macos_boot_whole_disks():
+    """PHYSICAL whole-disk ids backing '/' — the direct ParentWholeDisk plus, for APFS, each container
+    physical store's whole disk (this is what catches an EXTERNAL APFS boot SSD). Returns an empty set on
+    any failure so the guard degrades to the prior behavior rather than crashing. (Parity with the
+    universal-flasher sd_backend boot-disk guard.)"""
+    protected = set()
+    try:
+        r = subprocess.run(["diskutil", "info", "-plist", "/"],
+                           capture_output=True, text=True, timeout=10)
+        if r.returncode != 0 or not r.stdout:
+            return protected
+        info = plistlib.loads(r.stdout.encode("utf-8"))
+    except Exception:
+        return protected
+    pwd = info.get("ParentWholeDisk")
+    if pwd:
+        protected.add(_macos_whole_disk_id(pwd))
+    for store in info.get("APFSPhysicalStores") or []:
+        did = store.get("DeviceIdentifier") or store.get("APFSPhysicalStore")
+        if did:
+            protected.add(_macos_whole_disk_id(did))
+    return protected
+
+
 def _assert_sd_target_safe(port, log_cb=None):
     """Refuse to raw-write ``port`` unless it is a removable, non-system disk — dd'ing the wrong drive
     (e.g. /dev/sda, the OS disk) silently destroys the running system, so this MUST run before dd.
@@ -154,9 +187,13 @@ def _assert_sd_target_safe(port, log_cb=None):
             raise ValueError(
                 f"refusing to write {port}: internal, non-removable disk — this looks like your system "
                 f"disk, not an SD card")
-        # macOS refinement TODO (parity with uf sd_backend beat-46): an EXTERNAL disk that backs '/'
-        # (external boot) still passes here; catching it needs `diskutil info -plist /` ->
-        # ParentWholeDisk + APFSPhysicalStores whole-disk resolution.
+        # Refuse a disk that backs the running system (/) even when it's EXTERNAL/removable — an
+        # external-boot macOS (USB/Thunderbolt SSD) would otherwise pass the removable check above and a
+        # raw dd there destroys the running OS.
+        if _macos_whole_disk_id(port) in _macos_boot_whole_disks():
+            raise ValueError(
+                f"refusing to write {port}: it backs the running system (/) — writing here would destroy "
+                f"your OS, even though it is an external/removable disk")
 
 
 def _stream_process(cmd, log_cb, tag, progress_cb=None, progress_re=None, out_lines=None):

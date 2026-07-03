@@ -216,6 +216,51 @@ def test_sd_guard_allows_external_removable_macos(qapp, monkeypatch):
     flash_engine._assert_sd_target_safe("/dev/disk4")   # a real external SD card — must NOT raise
 
 
+def _macos_run_dispatch(port_info, boot_info):
+    """Fake subprocess.run for the macOS guard: `diskutil info -plist /` returns the boot-disk plist,
+    any other target returns the port's plist. All mocked — no diskutil/dd ever runs."""
+    import plistlib
+
+    def _run(cmd, *a, **k):
+        info = boot_info if cmd[-1] == "/" else port_info
+        return _FakeRun(plistlib.dumps(info).decode())
+    return _run
+
+
+def test_sd_guard_refuses_external_boot_disk_macos(qapp, monkeypatch):
+    """An EXTERNAL, removable disk that backs '/' (external-boot macOS) must be refused (UFUI-3b) — it
+    would pass the internal/removable check but a dd there destroys the running OS."""
+    from src.core import flash_engine
+    port_info = {"Internal": False, "Removable": True}   # external + removable -> passes the earlier check
+    boot_info = {"ParentWholeDisk": "disk4"}             # '/' is backed by disk4
+    monkeypatch.setattr(flash_engine.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(flash_engine.subprocess, "run", _macos_run_dispatch(port_info, boot_info))
+    with pytest.raises(ValueError, match="backs the running system"):
+        flash_engine._assert_sd_target_safe("/dev/disk4")
+
+
+def test_sd_guard_resolves_apfs_external_boot_macos(qapp, monkeypatch):
+    """APFS: '/' lives on a synthesized container, so the boot disk must be resolved via
+    APFSPhysicalStores -> whole disk. An external APFS boot SSD (rdisk4) must be refused."""
+    from src.core import flash_engine
+    port_info = {"Internal": False, "Removable": True}
+    boot_info = {"APFSPhysicalStores": [{"DeviceIdentifier": "disk4s2"}]}
+    monkeypatch.setattr(flash_engine.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(flash_engine.subprocess, "run", _macos_run_dispatch(port_info, boot_info))
+    with pytest.raises(ValueError, match="backs the running system"):
+        flash_engine._assert_sd_target_safe("/dev/rdisk4")   # rdisk4 -> disk4 == APFS store's whole disk
+
+
+def test_sd_guard_allows_external_non_boot_disk_macos(qapp, monkeypatch):
+    """A genuine external SD that does NOT back '/' still writes."""
+    from src.core import flash_engine
+    port_info = {"Internal": False, "Removable": True}
+    boot_info = {"ParentWholeDisk": "disk0"}             # boot is disk0, target is disk5
+    monkeypatch.setattr(flash_engine.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(flash_engine.subprocess, "run", _macos_run_dispatch(port_info, boot_info))
+    flash_engine._assert_sd_target_safe("/dev/disk5")    # must NOT raise
+
+
 def test_sd_flash_refuses_system_disk_before_dd(qapp, tmp_path, monkeypatch):
     """SDImageBackend.flash must abort on a system-disk target BEFORE any dd runs."""
     from src.core import flash_engine
