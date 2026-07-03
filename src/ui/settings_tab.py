@@ -1,7 +1,6 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QGroupBox, QFormLayout, QComboBox,
-    QSpinBox, QCheckBox, QLineEdit, QPushButton, QLabel,
-    QMessageBox, QHBoxLayout,
+    QSpinBox, QCheckBox, QLineEdit, QPushButton, QMessageBox, QHBoxLayout,
 )
 from PyQt5.QtCore import pyqtSignal
 

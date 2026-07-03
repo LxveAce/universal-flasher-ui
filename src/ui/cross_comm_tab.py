@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QPushButton,
     QTextEdit, QLabel, QComboBox, QCheckBox, QDialog,
     QFormLayout, QLineEdit, QDialogButtonBox, QListWidget,
-    QListWidgetItem, QMessageBox,
+    QMessageBox,
 )
 from PyQt5.QtCore import Qt
 

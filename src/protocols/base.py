@@ -1,4 +1,3 @@
-import re
 from src.models.target import Target
 
 

@@ -1,5 +1,4 @@
 from PyQt5.QtWidgets import QMainWindow, QTabWidget, QStatusBar
-from PyQt5.QtCore import Qt
 
 from src.ui.flash_tab import FlashTab
 from src.ui.device_tab import DeviceTab
