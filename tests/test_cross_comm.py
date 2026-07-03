@@ -150,6 +150,27 @@ def test_dedup_holds_at_scale():
     assert len(broker.target_pool) == 1000   # none re-added
 
 
+def test_pool_is_capped_and_stops_emitting():
+    """The pool is bounded; past the cap nothing is added OR emitted, so the UI table (driven by the
+    target_discovered signal and index-mapped to the pool) stays 1:1 and bounded too."""
+    broker = CrossCommBroker()
+    broker._MAX_POOL = 5                      # shrink the cap for a fast test
+    emitted = []
+    broker.target_discovered.connect(emitted.append)
+    for i in range(8):
+        broker.publish(_ap(identifier=f"net{i}"))
+    assert len(broker.target_pool) == 5      # pool bounded
+    assert len(emitted) == 5                 # no emit past the cap -> table stays aligned + bounded
+
+
+def test_event_log_is_a_bounded_deque():
+    broker = CrossCommBroker()
+    assert broker.event_log.maxlen == broker._MAX_EVENT_LOG   # bounded store, not an unbounded list
+    for i in range(broker._MAX_EVENT_LOG + 10):
+        broker._log(str(i))
+    assert len(broker.event_log) == broker._MAX_EVENT_LOG     # evicts oldest instead of growing
+
+
 def test_route_to_device_emits():
     broker = CrossCommBroker()
     routed = []

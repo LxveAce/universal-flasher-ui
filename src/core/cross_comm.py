@@ -1,3 +1,4 @@
+from collections import deque
 from PyQt5.QtCore import QObject, pyqtSignal
 from datetime import datetime
 
@@ -23,10 +24,16 @@ class CrossCommBroker(QObject):
     target_routed = pyqtSignal(object)       # CrossCommMessage
     event_logged = pyqtSignal(str)           # log line
 
+    # A busy scan streams thousands of targets; device_tab publishes every one here. Bound the shared
+    # pool (and, because the cross_comm_tab table mirrors it 1:1 by index for routing, the UI table too)
+    # and the retained event log so neither grows without limit.
+    _MAX_POOL = 5000
+    _MAX_EVENT_LOG = 5000
+
     def __init__(self):
         super().__init__()
         self.target_pool: list[Target] = []
-        self.event_log: list[str] = []
+        self.event_log: deque = deque(maxlen=self._MAX_EVENT_LOG)
         self._subscriptions: list[dict] = []
         # O(1) dedup index mirroring target_pool, keyed exactly like _is_duplicate ((type, identifier)).
         # device_tab publishes EVERY discovered target here (even past its own local cap), so a busy scan
@@ -35,7 +42,8 @@ class CrossCommBroker(QObject):
 
     def publish(self, target: Target):
         """Add a discovered target to the shared pool."""
-        if not self._is_duplicate(target):
+        # Drop past the cap (not a dup, pool full) rather than grow the pool + the 1:1 UI table forever.
+        if not self._is_duplicate(target) and len(self.target_pool) < self._MAX_POOL:
             self._seen_keys.add((target.type, target.identifier))
             self.target_pool.append(target)
             self.target_discovered.emit(target)

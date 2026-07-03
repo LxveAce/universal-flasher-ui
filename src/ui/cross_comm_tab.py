@@ -119,6 +119,8 @@ class CrossCommTab(QWidget):
             "font-family: 'JetBrains Mono', monospace; font-size: 10px;"
         )
         self.event_log.setPlaceholderText("Device events will appear here in real-time...")
+        # Bound the live event stream — drop oldest blocks past the cap so a long scan can't grow it forever.
+        self.event_log.document().setMaximumBlockCount(5000)
         self.auto_share = QCheckBox("Auto-share all discoveries to pool")
         self.auto_share.setChecked(True)
         stream_layout.addWidget(self.event_log)
