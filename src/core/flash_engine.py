@@ -1,7 +1,10 @@
+import json
 import os
-import sys
+import platform
+import plistlib
 import re
 import subprocess
+import sys
 
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
 
@@ -75,6 +78,85 @@ class FlashBackend:
 
     def erase_flash(self, port, log_cb=None, **kwargs):
         raise NotImplementedError(f"{self.name} backend does not support erase")
+
+
+# Mount points that mark a disk as the OS/boot/system disk — never a raw-write target. A USB-attached
+# root/boot disk (Pi USB-SSD boot, a live-USB install) is removable=False + tran=usb and would pass the
+# bus/removable heuristic alone, so we key the refusal off a real system mount anywhere in the disk's
+# partition subtree. (Mirrors the sibling uf_core/sd_backend guard.)
+_SD_PROTECTED_MOUNTS = frozenset((
+    "/", "/boot", "/boot/efi", "/boot/firmware", "/efi", "/usr", "/var", "/home",
+))
+
+
+def _sd_subtree_mountpoints(node):
+    """Every mountpoint on an lsblk node and its partition descendants (handles the legacy string
+    ``mountpoint`` and the newer ``mountpoints`` list)."""
+    mps = []
+    mp = node.get("mountpoint")
+    if mp:
+        mps.append(mp)
+    for m in node.get("mountpoints") or []:
+        if m:
+            mps.append(m)
+    for child in node.get("children") or []:
+        mps.extend(_sd_subtree_mountpoints(child))
+    return mps
+
+
+def _assert_sd_target_safe(port, log_cb=None):
+    """Refuse to raw-write ``port`` unless it is a removable, non-system disk — dd'ing the wrong drive
+    (e.g. /dev/sda, the OS disk) silently destroys the running system, so this MUST run before dd.
+
+    Linux uses lsblk (skip any disk hosting a protected system mount; require removable OR usb-attached);
+    macOS uses diskutil (refuse an internal, non-removable disk). If detection itself fails we REFUSE
+    rather than write blindly. Other platforms fall through unguarded — but the only caller is the SD dd
+    path, which Windows already blocks with NotImplementedError before reaching here.
+    """
+    system = platform.system()
+    if system == "Linux":
+        try:
+            r = subprocess.run(
+                ["lsblk", "-J", "-b", "-o", "NAME,TYPE,RM,TRAN,MOUNTPOINT", port],
+                capture_output=True, text=True, timeout=10,
+            )
+        except Exception as e:
+            raise RuntimeError(f"refusing to write {port}: cannot verify it is an SD card (lsblk failed: {e})")
+        if r.returncode != 0:
+            raise ValueError(f"refusing to write {port}: lsblk could not describe it ({(r.stderr or '').strip()})")
+        devs = json.loads(r.stdout or "{}").get("blockdevices", [])
+        dev = devs[0] if devs else None
+        if not dev:
+            raise ValueError(f"refusing to write {port}: not a recognized block device")
+        sys_mounts = [m for m in _sd_subtree_mountpoints(dev) if m in _SD_PROTECTED_MOUNTS]
+        if sys_mounts:
+            raise ValueError(
+                f"refusing to write {port}: it hosts a system mount ({sys_mounts[0]}) — this looks like "
+                f"your OS/boot disk, not an SD card")
+        rm = dev.get("rm")
+        removable = (rm.lower() in ("1", "true")) if isinstance(rm, str) else bool(rm)
+        tran = (dev.get("tran") or "").lower()
+        if not removable and tran != "usb":
+            raise ValueError(
+                f"refusing to write {port}: not a removable or USB-attached drive (looks fixed/internal)")
+    elif system == "Darwin":
+        try:
+            r = subprocess.run(["diskutil", "info", "-plist", port],
+                               capture_output=True, text=True, timeout=10)
+            info = plistlib.loads((r.stdout or "").encode()) if r.returncode == 0 and r.stdout else {}
+        except Exception as e:
+            raise RuntimeError(f"refusing to write {port}: cannot verify it is an SD card (diskutil failed: {e})")
+        if not info:
+            raise ValueError(f"refusing to write {port}: diskutil could not describe it")
+        removable = bool(info.get("Removable", info.get("RemovableMedia", False)))
+        internal = bool(info.get("Internal", True))
+        if internal and not removable:
+            raise ValueError(
+                f"refusing to write {port}: internal, non-removable disk — this looks like your system "
+                f"disk, not an SD card")
+        # macOS refinement TODO (parity with uf sd_backend beat-46): an EXTERNAL disk that backs '/'
+        # (external boot) still passes here; catching it needs `diskutil info -plist /` ->
+        # ParentWholeDisk + APFSPhysicalStores whole-disk resolution.
 
 
 def _stream_process(cmd, log_cb, tag, progress_cb=None, progress_re=None, out_lines=None):
@@ -296,6 +378,10 @@ class SDImageBackend(FlashBackend):
                 "Use Raspberry Pi Imager or balenaEtcher for now."
             )
         else:
+            # Data-loss guard: dd to the wrong drive destroys the running system. Refuse anything that
+            # is not a removable, non-system disk BEFORE building/running the dd command.
+            _assert_sd_target_safe(port, log_cb)
+
             # Linux/macOS: use dd with progress
             block_size = kwargs.get("bs", "4M")
             cmd = [

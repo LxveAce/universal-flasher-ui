@@ -5,6 +5,8 @@ custom finished/log/progress signals fire on direct connections, so these run
 headlessly under the offscreen platform.
 """
 
+import json
+
 import pytest
 
 from src.core.flash_engine import FlashEngine, OperationWorker, QFlipperBackend
@@ -163,3 +165,70 @@ def test_run_adb_raises_on_nonzero_rc(qapp, monkeypatch):
     monkeypatch.setattr(flash_engine.subprocess, "Popen", lambda *a, **k: fake)
     with pytest.raises(RuntimeError, match="adb command failed"):
         flash_engine.ADBBackend()._run_adb(["push", "a", "b"])
+
+
+# --- SDImageBackend refuses the OS/system disk before dd (UFUI-3) ------------ #
+# ALL mocked: lsblk/diskutil output is faked and dd is never invoked — no real disk is ever touched.
+class _FakeRun:
+    def __init__(self, stdout, rc=0, stderr=""):
+        self.stdout = stdout
+        self.returncode = rc
+        self.stderr = stderr
+
+
+def test_sd_guard_refuses_system_disk_linux(qapp, monkeypatch):
+    from src.core import flash_engine
+    lsblk = {"blockdevices": [{"name": "sda", "type": "disk", "rm": False, "tran": "sata",
+             "mountpoint": None, "children": [{"name": "sda2", "mountpoint": "/"}]}]}
+    monkeypatch.setattr(flash_engine.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(flash_engine.subprocess, "run", lambda *a, **k: _FakeRun(json.dumps(lsblk)))
+    with pytest.raises(ValueError, match="system mount|OS/boot"):
+        flash_engine._assert_sd_target_safe("/dev/sda")
+
+
+def test_sd_guard_allows_removable_card_linux(qapp, monkeypatch):
+    from src.core import flash_engine
+    lsblk = {"blockdevices": [{"name": "sdb", "type": "disk", "rm": True, "tran": "usb",
+             "mountpoint": None, "children": [{"name": "sdb1", "mountpoint": "/media/pi/BOOT"}]}]}
+    monkeypatch.setattr(flash_engine.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(flash_engine.subprocess, "run", lambda *a, **k: _FakeRun(json.dumps(lsblk)))
+    flash_engine._assert_sd_target_safe("/dev/sdb")     # a real removable SD reader — must NOT raise
+
+
+def test_sd_guard_refuses_internal_disk_macos(qapp, monkeypatch):
+    from src.core import flash_engine
+    import plistlib
+    info = {"Internal": True, "Removable": False, "RemovableMedia": False}
+    monkeypatch.setattr(flash_engine.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(flash_engine.subprocess, "run",
+                        lambda *a, **k: _FakeRun(plistlib.dumps(info).decode()))
+    with pytest.raises(ValueError, match="internal"):
+        flash_engine._assert_sd_target_safe("/dev/disk0")
+
+
+def test_sd_guard_allows_external_removable_macos(qapp, monkeypatch):
+    from src.core import flash_engine
+    import plistlib
+    info = {"Internal": False, "Removable": True}
+    monkeypatch.setattr(flash_engine.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(flash_engine.subprocess, "run",
+                        lambda *a, **k: _FakeRun(plistlib.dumps(info).decode()))
+    flash_engine._assert_sd_target_safe("/dev/disk4")   # a real external SD card — must NOT raise
+
+
+def test_sd_flash_refuses_system_disk_before_dd(qapp, tmp_path, monkeypatch):
+    """SDImageBackend.flash must abort on a system-disk target BEFORE any dd runs."""
+    from src.core import flash_engine
+    img = tmp_path / "os.img"
+    img.write_bytes(b"\x00" * 16)
+    lsblk = {"blockdevices": [{"name": "sda", "type": "disk", "rm": False, "tran": "sata",
+             "children": [{"name": "sda1", "mountpoint": "/boot"}]}]}
+    monkeypatch.setattr(flash_engine.sys, "platform", "linux")     # take the dd branch, not win32
+    monkeypatch.setattr(flash_engine.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(flash_engine.subprocess, "run", lambda *a, **k: _FakeRun(json.dumps(lsblk)))
+    dd = {"ran": False}
+    monkeypatch.setattr(flash_engine, "_stream_process",
+                        lambda *a, **k: dd.__setitem__("ran", True) or 0)
+    with pytest.raises(ValueError):
+        flash_engine.SDImageBackend().flash("/dev/sda", str(img))
+    assert dd["ran"] is False        # never reached dd
