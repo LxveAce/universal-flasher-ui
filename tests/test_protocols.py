@@ -216,6 +216,24 @@ def test_halehound_build_command():
     assert p.build_command("wifi_deauth", t) == "wifi_deauth AA:BB:CC:DD:EE:FF"
 
 
+def test_halehound_oversized_numeric_field_does_not_crash():
+    """Untrusted device output with a pathologically long digit run must NOT raise out of parse_line
+    (device_tab calls it with no try/except — an unguarded int() would crash the GUI on CPython's
+    4300-digit int<-str limit). The oversized field degrades to None; the rest still parses."""
+    p = HaleHoundProtocol()
+    line = "[WIFI] SSID: Net | BSSID: AA:BB:CC:DD:EE:FF | CH: " + "9" * 5000 + " | RSSI: -42"
+    t = p.parse_line(line, PORT)              # must not raise
+    assert t is not None and t.type == "AP"
+    assert t.identifier == "Net"
+    assert t.mac == "AA:BB:CC:DD:EE:FF"
+    assert t.channel is None                  # oversized channel rejected safely...
+    assert t.rssi == -42                      # ...while the valid RSSI still parses
+
+    # A normal channel is unaffected.
+    ok = p.parse_line("[WIFI] SSID: N | BSSID: AA:BB:CC:DD:EE:FF | CH: 6 | RSSI: -42", PORT)
+    assert ok.channel == 6
+
+
 # -- Registry + non-matching lines -----------------------------------------
 
 def test_registry_lookup():

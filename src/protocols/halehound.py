@@ -99,6 +99,19 @@ class HaleHoundProtocol(DeviceProtocol):
         r"\s*\|\s*CH:\s*(\d+)\s*\|\s*RSSI:\s*(-?\d+)"
     )
 
+    @staticmethod
+    def _to_int(s):
+        """Parse an untrusted numeric field from device output safely. A pathologically long digit run
+        would make int() raise (CPython caps int<-str at 4300 digits) and, since device_tab calls
+        parse_line with no try/except, crash the GUI thread — so reject anything longer than a sane
+        channel/RSSI (return None) instead of converting it."""
+        if len(s) > 10:
+            return None
+        try:
+            return int(s)
+        except ValueError:
+            return None
+
     def parse_line(self, line: str, source_port: str) -> Target | None:
         # WiFi AP
         m = self.WIFI_AP.search(line)
@@ -107,8 +120,8 @@ class HaleHoundProtocol(DeviceProtocol):
                 type="AP",
                 identifier=m.group(1).strip(),
                 mac=m.group(2),
-                channel=int(m.group(3)),
-                rssi=int(m.group(4)),
+                channel=self._to_int(m.group(3)),
+                rssi=self._to_int(m.group(4)),
                 source_device=source_port,
             )
 
@@ -119,7 +132,7 @@ class HaleHoundProtocol(DeviceProtocol):
                 type="STA",
                 identifier=m.group(1),
                 mac=m.group(1),
-                rssi=int(m.group(2)),
+                rssi=self._to_int(m.group(2)),
                 source_device=source_port,
             )
 
@@ -130,7 +143,7 @@ class HaleHoundProtocol(DeviceProtocol):
                 type="BLE",
                 identifier=m.group(1).strip(),
                 mac=m.group(2),
-                rssi=int(m.group(3)),
+                rssi=self._to_int(m.group(3)),
                 source_device=source_port,
             )
 
@@ -141,7 +154,7 @@ class HaleHoundProtocol(DeviceProtocol):
                 type="SubGHz",
                 identifier=f"{m.group(2)}: {m.group(3).strip()}",
                 frequency=m.group(1),
-                rssi=int(m.group(4)),
+                rssi=self._to_int(m.group(4)),
                 source_device=source_port,
                 extra={"modulation": m.group(2), "data": m.group(3).strip()},
             )
@@ -173,7 +186,7 @@ class HaleHoundProtocol(DeviceProtocol):
             return Target(
                 type="NRF24",
                 identifier=m.group(2),
-                channel=int(m.group(1)),
+                channel=self._to_int(m.group(1)),
                 source_device=source_port,
                 extra={"payload": m.group(3)},
             )
@@ -207,8 +220,8 @@ class HaleHoundProtocol(DeviceProtocol):
                 type="RogueAP",
                 identifier=m.group(1).strip(),
                 mac=m.group(2),
-                channel=int(m.group(3)),
-                rssi=int(m.group(4)),
+                channel=self._to_int(m.group(3)),
+                rssi=self._to_int(m.group(4)),
                 source_device=source_port,
             )
 
