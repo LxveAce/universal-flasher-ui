@@ -127,6 +127,29 @@ def test_auto_route_unbalanced_brace_does_not_crash():
     assert len(broker.target_pool) == 1
 
 
+def test_clear_pool_resets_dedup_state():
+    """clear_pool must also reset the O(1) dedup index, or a previously-seen target would be wrongly
+    dropped after the pool is cleared."""
+    broker = CrossCommBroker()
+    broker.publish(_ap())
+    assert len(broker.target_pool) == 1
+    broker.clear_pool()
+    assert broker.target_pool == []
+    broker.publish(_ap())                    # same target — after a clear it must be accepted again
+    assert len(broker.target_pool) == 1
+
+
+def test_dedup_holds_at_scale():
+    """Every unique target lands; a full re-publish of all of them adds nothing (O(1) dedup)."""
+    broker = CrossCommBroker()
+    for i in range(1000):
+        broker.publish(_ap(identifier=f"net{i}"))
+    assert len(broker.target_pool) == 1000   # all unique landed
+    for i in range(1000):
+        broker.publish(_ap(identifier=f"net{i}"))  # re-publish every one -> all duplicates
+    assert len(broker.target_pool) == 1000   # none re-added
+
+
 def test_route_to_device_emits():
     broker = CrossCommBroker()
     routed = []

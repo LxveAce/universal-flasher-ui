@@ -28,10 +28,15 @@ class CrossCommBroker(QObject):
         self.target_pool: list[Target] = []
         self.event_log: list[str] = []
         self._subscriptions: list[dict] = []
+        # O(1) dedup index mirroring target_pool, keyed exactly like _is_duplicate ((type, identifier)).
+        # device_tab publishes EVERY discovered target here (even past its own local cap), so a busy scan
+        # streams thousands — a linear per-publish scan would make discovery O(n^2) and stall the GUI thread.
+        self._seen_keys: set[tuple] = set()
 
     def publish(self, target: Target):
         """Add a discovered target to the shared pool."""
         if not self._is_duplicate(target):
+            self._seen_keys.add((target.type, target.identifier))
             self.target_pool.append(target)
             self.target_discovered.emit(target)
             self._log(f"[DISCOVER] {target.type}: {target.identifier} from {target.source_device} (ch:{target.channel}, rssi:{target.rssi})")
@@ -63,13 +68,12 @@ class CrossCommBroker(QObject):
 
     def clear_pool(self):
         self.target_pool.clear()
+        self._seen_keys.clear()   # keep the dedup index in sync so cleared targets can be re-published
         self._log("[POOL] Cleared")
 
     def _is_duplicate(self, target: Target) -> bool:
-        return any(
-            t.identifier == target.identifier and t.type == target.type
-            for t in self.target_pool
-        )
+        # O(1) membership check against the seen-key index (was an O(n) scan of target_pool).
+        return (target.type, target.identifier) in self._seen_keys
 
     def _check_auto_routes(self, target: Target):
         for rule in self._subscriptions:
