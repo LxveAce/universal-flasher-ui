@@ -64,3 +64,15 @@ def test_missing_dir_is_noop():
     loader = ProfileLoader(profile_dir="/does/not/exist/xyz")
     loader.load_all()
     assert loader.profiles == {}
+
+
+def test_non_dict_profile_is_skipped_not_fatal(tmp_path):
+    """A profile file that is valid JSON but not an object (a hand-edited/corrupt file) must be skipped,
+    not crash load_all with a TypeError at startup."""
+    (tmp_path / "good.json").write_text(json.dumps({"name": "good", "backend": "esptool"}))
+    (tmp_path / "list.json").write_text("[1, 2, 3]")          # valid JSON, not a dict -> was TypeError
+    (tmp_path / "scalar.json").write_text('"just a string"')  # valid JSON, not a dict
+
+    loader = ProfileLoader(profile_dir=str(tmp_path))
+    loader.load_all()                                          # must not raise
+    assert set(loader.profiles) == {"good"}                    # the good one still loads

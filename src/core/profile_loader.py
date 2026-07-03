@@ -48,11 +48,13 @@ class ProfileLoader:
                 continue
             path = os.path.join(self.profile_dir, fname)
             try:
-                with open(path, "r") as f:
+                with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 profile = FirmwareProfile(data)
                 self.profiles[profile.name] = profile
-            except (json.JSONDecodeError, KeyError):
+            except (json.JSONDecodeError, KeyError, TypeError, OSError, UnicodeDecodeError):
+                # A corrupt profile (bad JSON, missing name/backend, valid-JSON-but-not-an-object ->
+                # TypeError, unreadable, or non-utf8) must not crash startup -- skip it, keep the rest.
                 continue
 
     def get(self, name):
