@@ -12,6 +12,13 @@ from src.protocols import PROTOCOL_DISPLAY_NAMES, get_protocol_by_display
 class DeviceTab(QWidget):
     """Per-device serial terminal, command palette, and live data tables."""
 
+    # A scanning device (marauder/bruce/etc.) can stream thousands of APs/stations rapidly. Cap the
+    # per-device target store so neither the list nor the QTableWidget grows without bound and freezes
+    # the UI, and cap the terminal so it can't accumulate unbounded text. Mirrors the headless-marauder-gui
+    # table-row cap (HMG-Q1).
+    _MAX_TARGETS = 2000
+    _MAX_TERMINAL_BLOCKS = 5000
+
     def __init__(self, device_manager, cross_comm):
         super().__init__()
         self.device_manager = device_manager
@@ -81,6 +88,8 @@ class DeviceTab(QWidget):
             "font-family: 'JetBrains Mono', 'Consolas', monospace; font-size: 11px;"
         )
         self.serial_output.setPlaceholderText("Connect to a device to see serial output...")
+        # Bound the live terminal — a long scan streams endlessly; drop the oldest blocks past the cap.
+        self.serial_output.document().setMaximumBlockCount(self._MAX_TERMINAL_BLOCKS)
         right_layout.addWidget(self.serial_output, 2)
 
         # Command palette
@@ -311,11 +320,14 @@ class DeviceTab(QWidget):
                 # Add to local target list
                 if port not in self._targets:
                     self._targets[port] = []
-                self._targets[port].append(target)
+                # Cap the local store so a device streaming thousands of targets can't grow the list +
+                # QTableWidget without bound (UI freeze / memory). Cross-comm still gets every target.
+                if len(self._targets[port]) < self._MAX_TARGETS:
+                    self._targets[port].append(target)
 
-                # Update table if this is the current device
-                if port == self._current_port:
-                    self._add_target_to_table(target)
+                    # Update table if this is the current device
+                    if port == self._current_port:
+                        self._add_target_to_table(target)
 
                 # Auto-share to cross-comm if enabled
                 # (The CrossCommTab's auto_share checkbox controls this,
