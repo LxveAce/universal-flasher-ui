@@ -284,6 +284,13 @@ class FlashTab(QWidget):
         self.progress.setValue(0)
         self._lock_ui()
         options = dict(profile.flash_args)
+        # Honor the user's "Flash Baud Rate" setting for esptool flashes. Other backends take no baud
+        # kwarg, so injecting one would raise on backend.flash(**options); esptool defaults to the
+        # profile's own baud when the setting is absent.
+        if getattr(profile, "backend", None) == "esptool":
+            flash_baud = load_settings().get("flash", {}).get("baud")
+            if flash_baud:
+                options["baud"] = int(flash_baud)
         try:
             worker = self.flash_engine.start_flash(
                 backend_name=profile.backend,

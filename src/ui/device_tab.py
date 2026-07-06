@@ -7,6 +7,7 @@ from PyQt5.QtCore import Qt
 
 from src.core.serial_handler import SerialHandler
 from src.protocols import PROTOCOL_DISPLAY_NAMES, get_protocol_by_display
+from src.config.settings import load_settings
 
 
 class DeviceTab(QWidget):
@@ -203,8 +204,10 @@ class DeviceTab(QWidget):
         proto_key = PROTOCOL_DISPLAY_NAMES.get(proto_display, "raw")
 
         try:
-            baud = 115200
-            device = self.device_manager.connect(port, baud, proto_key)
+            serial_cfg = load_settings().get("serial", {})
+            baud = int(serial_cfg.get("default_baud", 115200))
+            timeout = float(serial_cfg.get("timeout", 1))
+            device = self.device_manager.connect(port, baud, proto_key, timeout=timeout)
             self._current_port = port
             self._protocols[port] = get_protocol_by_display(proto_display)
             self._targets[port] = []

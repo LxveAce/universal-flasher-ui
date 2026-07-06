@@ -40,12 +40,12 @@ class DeviceManager(QObject):
             for p in ports
         ]
 
-    def connect(self, port, baud=115200, protocol="raw"):
+    def connect(self, port, baud=115200, protocol="raw", timeout=1):
         """Open a serial connection and register the device."""
         if port in self.connected_devices:
             return self.connected_devices[port]
 
-        conn = serial.Serial(port, baud, timeout=1)
+        conn = serial.Serial(port, baud, timeout=timeout)
         device = ConnectedDevice(
             port=port,
             connection=conn,
