@@ -122,7 +122,8 @@ class CrossCommTab(QWidget):
         # Bound the live event stream — drop oldest blocks past the cap so a long scan can't grow it forever.
         self.event_log.document().setMaximumBlockCount(5000)
         self.auto_share = QCheckBox("Auto-share all discoveries to pool")
-        self.auto_share.setChecked(True)
+        self.auto_share.setChecked(self.cross_comm.auto_share)
+        self.auto_share.toggled.connect(self._on_auto_share_toggled)
         stream_layout.addWidget(self.event_log)
         stream_layout.addWidget(self.auto_share)
         bottom_layout.addWidget(stream_group, 2)
@@ -148,6 +149,10 @@ class CrossCommTab(QWidget):
         splitter.addWidget(bottom)
 
         layout.addWidget(splitter)
+
+    def _on_auto_share_toggled(self, checked):
+        """Live-toggle whether device discoveries auto-populate the shared pool (the broker gates publish())."""
+        self.cross_comm.auto_share = bool(checked)
 
     def _connect_signals(self):
         # Cross-comm broker signals

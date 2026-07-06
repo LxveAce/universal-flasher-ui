@@ -83,6 +83,7 @@ def test_auto_route_type_mismatch_does_not_route():
 
 def test_auto_route_source_filter():
     broker = CrossCommBroker()
+    broker.dedup_by_mac = False   # _ap() shares one dummy MAC; exercise identifier-keyed dedup here
     routed = []
     broker.target_routed.connect(routed.append)
     broker.subscribe({
@@ -142,6 +143,7 @@ def test_clear_pool_resets_dedup_state():
 def test_dedup_holds_at_scale():
     """Every unique target lands; a full re-publish of all of them adds nothing (O(1) dedup)."""
     broker = CrossCommBroker()
+    broker.dedup_by_mac = False   # _ap() shares one dummy MAC; key on the unique identifiers instead
     for i in range(1000):
         broker.publish(_ap(identifier=f"net{i}"))
     assert len(broker.target_pool) == 1000   # all unique landed
@@ -154,6 +156,7 @@ def test_pool_is_capped_and_stops_emitting():
     """The pool is bounded; past the cap nothing is added OR emitted, so the UI table (driven by the
     target_discovered signal and index-mapped to the pool) stays 1:1 and bounded too."""
     broker = CrossCommBroker()
+    broker.dedup_by_mac = False   # _ap() shares one dummy MAC; key on the unique identifiers instead
     broker._MAX_POOL = 5                      # shrink the cap for a fast test
     emitted = []
     broker.target_discovered.connect(emitted.append)

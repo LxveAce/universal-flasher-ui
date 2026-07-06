@@ -332,9 +332,8 @@ class DeviceTab(QWidget):
                     if port == self._current_port:
                         self._add_target_to_table(target)
 
-                # Auto-share to cross-comm if enabled
-                # (The CrossCommTab's auto_share checkbox controls this,
-                #  but we always publish here -- the broker deduplicates)
+                # Auto-share to cross-comm. The Cross-Comm tab's auto_share checkbox drives
+                # broker.auto_share, so publish() is a no-op when sharing is off (and dedups otherwise).
                 self.cross_comm.publish(target)
 
     def _on_protocol_changed(self, display_name):

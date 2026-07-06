@@ -39,12 +39,28 @@ class CrossCommBroker(QObject):
         # device_tab publishes EVERY discovered target here (even past its own local cap), so a busy scan
         # streams thousands — a linear per-publish scan would make discovery O(n^2) and stall the GUI thread.
         self._seen_keys: set[tuple] = set()
+        # Cross-comm behavior toggles (persisted in settings; auto_share is also live-toggled by the
+        # Cross-Comm tab checkbox). auto_share gates whether discoveries auto-populate the shared pool;
+        # dedup_by_mac keys dedup on the radio's BSSID so distinct APs sharing an SSID aren't collapsed.
+        from src.config.settings import load_settings
+        cc = load_settings().get("cross_comm", {})
+        self.auto_share: bool = bool(cc.get("auto_share", True))
+        self.dedup_by_mac: bool = bool(cc.get("dedup_by_mac", True))
+
+    def _dedup_key(self, target: Target) -> tuple:
+        # With dedup_by_mac on, key on the MAC/BSSID so two APs sharing an SSID (e.g. "xfinitywifi")
+        # stay distinct; fall back to the identifier when no MAC is known (BLE/SubGHz/etc.).
+        if self.dedup_by_mac and target.mac:
+            return (target.type, target.mac)
+        return (target.type, target.identifier)
 
     def publish(self, target: Target):
-        """Add a discovered target to the shared pool."""
+        """Add a discovered target to the shared pool. No-op while auto-share is off."""
+        if not self.auto_share:
+            return
         # Drop past the cap (not a dup, pool full) rather than grow the pool + the 1:1 UI table forever.
         if not self._is_duplicate(target) and len(self.target_pool) < self._MAX_POOL:
-            self._seen_keys.add((target.type, target.identifier))
+            self._seen_keys.add(self._dedup_key(target))
             self.target_pool.append(target)
             self.target_discovered.emit(target)
             self._log(f"[DISCOVER] {target.type}: {target.identifier} from {target.source_device} (ch:{target.channel}, rssi:{target.rssi})")
@@ -81,7 +97,7 @@ class CrossCommBroker(QObject):
 
     def _is_duplicate(self, target: Target) -> bool:
         # O(1) membership check against the seen-key index (was an O(n) scan of target_pool).
-        return (target.type, target.identifier) in self._seen_keys
+        return self._dedup_key(target) in self._seen_keys
 
     def _check_auto_routes(self, target: Target):
         for rule in self._subscriptions:

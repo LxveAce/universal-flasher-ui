@@ -556,6 +556,11 @@ class FlashEngine(QObject):
         return self._active_worker
 
     def cancel(self):
+        """Best-effort abort of the running worker, for shutdown/cleanup only.
+
+        Intentionally NOT wired to a mid-flash "Cancel" button: terminate()-ing the thread while esptool is
+        mid-write can leave a half-written (bricked) chip, so cancellation is not offered as a routine control.
+        Hardened against an already-retired worker (isRunning() on a deleted QThread raises)."""
         w = self._active_worker
         if w is None:
             return

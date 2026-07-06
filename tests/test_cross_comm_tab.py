@@ -39,6 +39,7 @@ def test_pool_table_stays_bounded_via_broker_cap(qapp):
     row->target_pool index mapping used by _execute_action)."""
     tab, broker = _make_tab(qapp)
     try:
+        broker.dedup_by_mac = False   # _ap() shares one dummy MAC; key on the unique identifiers instead
         broker._MAX_POOL = 5           # shrink the cap for a fast test
         for i in range(8):
             broker.publish(_ap(identifier=f"net{i}"))
