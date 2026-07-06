@@ -264,7 +264,9 @@ class FlashTab(QWidget):
 
     def _on_prebackup_finished(self, success, message):
         """After an auto-backup: flash only if the backup actually succeeded."""
+        worker = self._active_worker
         self._active_worker = None
+        self._retire_worker(worker)
         pending = self._pending_flash
         self._pending_flash = None
         if not success:
@@ -308,8 +310,28 @@ class FlashTab(QWidget):
     def _on_progress(self, value):
         self.progress.setValue(value)
 
+    def _retire_worker(self, worker):
+        """Stop and release a worker whose `finished` signal just fired.
+
+        FlashWorker/OperationWorker declare their own `finished` signal, so it is emitted from *inside*
+        run() while the QThread is still executing. If the last reference is dropped (or the engine
+        overwrites it with the next batch item) before run() returns, the QThread wrapper can be
+        garbage-collected while the C++ thread is still alive, which aborts the whole process. Wait for
+        run() to actually return, drop the engine's handle, then schedule safe deletion."""
+        if worker is None:
+            return
+        try:
+            if worker.isRunning():
+                worker.wait(5000)
+        except RuntimeError:
+            return  # underlying C++ object already gone
+        self.flash_engine.clear_worker(worker)
+        worker.deleteLater()
+
     def _on_flash_finished(self, success, message):
+        worker = self._active_worker
         self._active_worker = None
+        self._retire_worker(worker)
         if success:
             self._log(f"[SUCCESS] {message}")
             self.progress.setValue(100)
@@ -383,7 +405,9 @@ class FlashTab(QWidget):
             self._update_flash_btn()
 
     def _on_operation_finished(self, success, message):
+        worker = self._active_worker
         self._active_worker = None
+        self._retire_worker(worker)
         self._log(f"[{'SUCCESS' if success else 'FAILED'}] {message}")
         self._update_flash_btn()
         self._refresh_devices()

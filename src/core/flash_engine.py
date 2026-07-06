@@ -556,9 +556,34 @@ class FlashEngine(QObject):
         return self._active_worker
 
     def cancel(self):
-        if self._active_worker and self._active_worker.isRunning():
-            self._active_worker.terminate()
+        w = self._active_worker
+        if w is None:
+            return
+        try:
+            if w.isRunning():
+                w.terminate()
+        except RuntimeError:
+            # underlying C++ QThread already deleted (retired) — nothing to cancel
+            self._active_worker = None
+
+    def clear_worker(self, worker=None):
+        """Drop the engine's handle on a finished worker.
+
+        A worker that has already been retired (deleteLater'd) leaves a dangling PyQt wrapper here;
+        querying it later (``is_flashing``) would raise "wrapped C/C++ object deleted". Callers clear the
+        reference as soon as a worker finishes. Passing the specific ``worker`` clears only if it is still
+        the active one, so a newer worker started in the meantime is never dropped by accident."""
+        if worker is None or self._active_worker is worker:
+            self._active_worker = None
 
     @property
     def is_flashing(self):
-        return self._active_worker is not None and self._active_worker.isRunning()
+        w = self._active_worker
+        if w is None:
+            return False
+        try:
+            return w.isRunning()
+        except RuntimeError:
+            # the QThread wrapper was deleted out from under us — treat as idle and forget it
+            self._active_worker = None
+            return False
