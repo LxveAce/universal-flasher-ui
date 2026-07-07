@@ -1,5 +1,11 @@
 # Universal Flasher & UI
 
+> ## ⚠️ Superseded — this was a prototype
+> The unified flasher + controller work continues in **[Cyber Controller](https://github.com/LxveAce/cyber-controller)**,
+> which supersedes this repo. For day-to-day use: **[universal-flasher](https://github.com/LxveAce/universal-flasher)**
+> for flashing + **[headless-marauder-gui](https://github.com/LxveAce/headless-marauder-gui)** for Marauder control.
+> This v0.1.0 snapshot is kept for reference and is **archived (read-only)**.
+
 [![Status: Alpha](https://img.shields.io/badge/status-alpha%20(v0.1.0)-orange)](https://github.com/LxveAce/universal-flasher-ui/releases)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/)
 [![UI: PyQt5](https://img.shields.io/badge/ui-PyQt5-green)](https://pypi.org/project/PyQt5/)
@@ -168,7 +174,6 @@ The **[v0.1.0 release](https://github.com/LxveAce/universal-flasher-ui/releases/
 - `universal-flasher-ui-v0.1.0-windows-x64.exe`
 - `universal-flasher-ui-v0.1.0-macos`
 - `universal-flasher-ui-v0.1.0-linux-x64`
-- `universal-flasher-ui-v0.1.0-linux-arm64`
 
 Builds are produced by the [Build & Release](.github/workflows/build-release.yml) GitHub Actions workflow on each published release. To build locally:
 
