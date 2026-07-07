@@ -9,6 +9,8 @@
 
 A single desktop app that **flashes firmware**, **talks to headless devices over serial**, and **coordinates discoveries between devices** — for ESP32, Raspberry Pi, Flipper Zero, and ADB-based hardware.
 
+> **⚡ Hardware in the works** — [LxveLabs](https://github.com/LxveAce) is developing a custom security-hardware board **in collaboration with [PCBWay](https://www.pcbway.com)**.
+
 This is the unified successor to two earlier tools by the same author:
 [Universal Flasher](https://github.com/LxveAce/universal-flasher) (flashing) and
 [Headless Marauder GUI](https://github.com/LxveAce/headless-marauder-gui) (device control). It merges their core ideas into one PyQt5 application and adds a cross-device event bus.
